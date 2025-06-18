@@ -11,7 +11,6 @@ from imblearn.over_sampling import SMOTE
 # =======================
 # FUNÇÕES AUXILIARES
 # =======================
-
 def normalizar_texto(texto):
     texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
     texto = re.sub(r'[^\w\s]', ' ', texto)
@@ -65,25 +64,45 @@ def heuristicas_para_valores_reais(nova_linha, le_mob, le_app):
     return alta, internar, dias, eutanasia
 
 def treinar_modelos(df, le_mob, le_app):
-    features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
-    features_eutanasia = features + ['tem_doenca_letal']
-
     X_eutanasia = df[features_eutanasia]
     y_eutanasia = df['Eutanasia']
-    X_train, X_test, y_train, y_test = train_test_split(X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
+
+    # Verificar e tratar valores ausentes
+    if X_eutanasia.isnull().sum().sum() > 0:
+        X_eutanasia = X_eutanasia.fillna(X_eutanasia.mean())
+    if y_eutanasia.isnull().sum() > 0:
+        y_eutanasia = y_eutanasia.fillna(method='ffill')
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
+
+    # Outra verificação (opcional)
+    # print("Tipos de X_train:\n", X_train.dtypes)
+
     X_train_res, y_train_res = SMOTE(random_state=42).fit_resample(X_train, y_train)
+
     modelo_eutanasia = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_eutanasia.fit(X_train_res, y_train_res)
 
     X_alta = df[features]
     y_alta = df['Alta']
-    X_alta_train, _, y_alta_train, _ = train_test_split(X_alta, y_alta, test_size=0.2, random_state=42, stratify=y_alta)
+
+    # Tratar NaNs se houver em X_alta e y_alta
+    if X_alta.isnull().sum().sum() > 0:
+        X_alta = X_alta.fillna(X_alta.mean())
+    if y_alta.isnull().sum() > 0:
+        y_alta = y_alta.fillna(method='ffill')
+
+    X_alta_train, _, y_alta_train, _ = train_test_split(
+        X_alta, y_alta, test_size=0.2, random_state=42, stratify=y_alta)
+
     X_alta_res, y_alta_res = SMOTE(random_state=42).fit_resample(X_alta_train, y_alta_train)
     modelo_alta = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_alta.fit(X_alta_res, y_alta_res)
 
     modelo_internar = RandomForestClassifier(random_state=42).fit(df[features], df['Internar'])
-    modelo_dias = RandomForestClassifier(random_state=42).fit(df[df['Internar'] == 1][features], df[df['Internar'] == 1]['Dias Internado'])
+    modelo_dias = RandomForestClassifier(random_state=42).fit(
+        df[df['Internar'] == 1][features], df[df['Internar'] == 1]['Dias Internado'])
 
     return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias
 
@@ -148,13 +167,8 @@ def prever(texto):
 # =======================
 # CARREGAMENTO DE DADOS
 # =======================
-
-try:
-    df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
-    df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
-except FileNotFoundError as e:
-    st.error(f"Arquivo não encontrado: {e.filename}. Por favor, coloque os arquivos CSV na mesma pasta do app.")
-    st.stop()
+df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
+df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
 
 palavras_chave_eutanasia = [
     unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
@@ -179,20 +193,12 @@ modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = treinar_modelos(df
 # =======================
 # INTERFACE STREAMLIT
 # =======================
-
 st.title("💉 Avaliação Clínica Canina")
 
 anamnese = st.text_area("Digite a anamnese do paciente:")
 
 if st.button("Analisar"):
-    if not anamnese.strip():
-        st.warning("Por favor, digite a anamnese para análise.")
-    else:
-        resultado = prever(anamnese)
-        st.subheader("📋 Resultado da Avaliação:")
-        for chave, valor in resultado.items():
-            if isinstance(valor, list):
-                st.write(f"**{chave}**: {', '.join(valor)}")
-            else:
-                st.write(f"**{chave}**: {valor}")
-
+    resultado = prever(anamnese)
+    st.subheader("📋 Resultado da Avaliação:")
+    for chave, valor in resultado.items():
+        st.write(f"**{chave}**: {valor}")
