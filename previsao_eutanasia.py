@@ -6,14 +6,19 @@ import re
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from imblearn.over_sampling import SMOTE
 import traceback
-import streamlit as st
 import sklearn
 import imblearn
 
 st.write("scikit-learn version:", sklearn.__version__)
 st.write("imbalanced-learn version:", imblearn.__version__)
+
+try:
+    from imblearn.over_sampling import SMOTE
+except ImportError as e:
+    st.error("Erro ao importar SMOTE. Verifique as versões instaladas de scikit-learn e imbalanced-learn.")
+    st.error(str(e))
+    st.stop()
 
 # =======================
 # FUNÇÕES AUXILIARES
@@ -82,8 +87,12 @@ def treinar_modelos(df, le_mob, le_app):
     X_eutanasia = df[features_eutanasia]
     y_eutanasia = df['Eutanasia']
     X_train, X_test, y_train, y_test = train_test_split(X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
+
     smote = SMOTE(random_state=42)
-    X_train_res, y_train_res = smote.fit_resample(X_train, y_train)
+    X_train_np = X_train.to_numpy() if hasattr(X_train, 'to_numpy') else np.array(X_train)
+    y_train_np = y_train.to_numpy() if hasattr(y_train, 'to_numpy') else np.array(y_train)
+    X_train_res, y_train_res = smote.fit_resample(X_train_np, y_train_np)
+
     modelo_eutanasia = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_eutanasia.fit(X_train_res, y_train_res)
 
@@ -91,7 +100,10 @@ def treinar_modelos(df, le_mob, le_app):
     X_alta = df[features]
     y_alta = df['Alta']
     X_alta_train, _, y_alta_train, _ = train_test_split(X_alta, y_alta, test_size=0.2, random_state=42, stratify=y_alta)
-    X_alta_res, y_alta_res = smote.fit_resample(X_alta_train, y_alta_train)
+    X_alta_train_np = X_alta_train.to_numpy() if hasattr(X_alta_train, 'to_numpy') else np.array(X_alta_train)
+    y_alta_train_np = y_alta_train.to_numpy() if hasattr(y_alta_train, 'to_numpy') else np.array(y_alta_train)
+    X_alta_res, y_alta_res = smote.fit_resample(X_alta_train_np, y_alta_train_np)
+
     modelo_alta = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_alta.fit(X_alta_res, y_alta_res)
 
