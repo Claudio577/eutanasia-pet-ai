@@ -44,36 +44,52 @@ def heuristicas_para_valores_reais(linha, le_mob, le_app):
     return alta, internar, dias, eutanasia
 
 # ----------------------
-# TREINAMENTO DE MODELOS
+# TREINAMENTO DE MODELOS (corrigido)
 # ----------------------
 def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
     smote = SMOTE(random_state=42)
 
     # Eutanásia
-    X_e = df[features_eutanasia].fillna(df[features_eutanasia].mean()).astype(float)
+    X_e = df[features_eutanasia].fillna(df[features_eutanasia].mean(numeric_only=True)).astype(float)
     y_e = df['Eutanasia'].fillna(df['Eutanasia'].mode()[0]).astype(int)
-    X_e, y_e = check_X_y(X_e, y_e)
+
     Xe_tr, _, ye_tr, _ = train_test_split(X_e, y_e, test_size=0.2,
                                           random_state=42, stratify=y_e)
-    Xe_res, ye_res = smote.fit_resample(Xe_tr, ye_tr)
+
+    try:
+        Xe_res, ye_res = smote.fit_resample(Xe_tr, ye_tr)
+    except Exception as e:
+        st.error(f"Erro ao aplicar SMOTE em Eutanásia: {e}")
+        st.stop()
+
     model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
     model_e.fit(Xe_res, ye_res)
 
     # Alta
-    X_a = df[features].fillna(df[features].mean()).astype(float)
+    X_a = df[features].fillna(df[features].mean(numeric_only=True)).astype(float)
     y_a = df['Alta'].fillna(df['Alta'].mode()[0]).astype(int)
-    X_a, y_a = check_X_y(X_a, y_a)
+
     Xa_tr, _, ya_tr, _ = train_test_split(X_a, y_a, test_size=0.2,
                                           random_state=42, stratify=y_a)
-    Xa_res, ya_res = smote.fit_resample(Xa_tr, ya_tr)
+
+    try:
+        Xa_res, ya_res = smote.fit_resample(Xa_tr, ya_tr)
+    except Exception as e:
+        st.error(f"Erro ao aplicar SMOTE em Alta: {e}")
+        st.stop()
+
     model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
     model_a.fit(Xa_res, ya_res)
 
-    # Internar e Dias — não usam SMOTE
+    # Internar e Dias (sem SMOTE)
     model_i = RandomForestClassifier(random_state=42)
-    model_i.fit(X_a, df['Internar'])
+    model_i.fit(X_a, df['Internar'].fillna(0).astype(int))
+
+    dias_df = df[df['Internar'] == 1].copy()
+    dias_df['Dias Internado'] = dias_df['Dias Internado'].fillna(0).astype(int)
+
     model_d = RandomForestClassifier(random_state=42)
-    model_d.fit(df[df['Internar']==1][features], df[df['Internar']==1]['Dias Internado'])
+    model_d.fit(dias_df[features], dias_df['Dias Internado'])
 
     return model_e, model_a, model_i, model_d
 
@@ -100,15 +116,15 @@ def prever(texto):
     mob = le_mob.transform([mob])[0]
     letal = int(any(p in tn for p in palavras_chave_eutanasia))
 
-    df_pre = pd.DataFrame([[idade,peso,grav,dor,mob,ap,temp,letal]],
+    df_pre = pd.DataFrame([[idade, peso, grav, dor, mob, ap, temp, letal]],
                           columns=features_eutanasia)
 
     out = {}
     out['Alta'] = "Sim" if model_alta.predict(df_pre[features])[0] else "Não"
     out['Internar'] = "Sim" if model_internar.predict(df_pre[features])[0] else "Não"
-    out['Dias Internado'] = int(model_dias.predict(df_pre[features])[0] if out['Internar']=="Sim" else 0)
+    out['Dias Internado'] = int(model_dias.predict(df_pre[features])[0] if out['Internar'] == "Sim" else 0)
     chance = model_eutanasia.predict_proba(df_pre)[0][1] * 100
-    out['Chance de Eutanásia (%)'] = round(chance,1)
+    out['Chance de Eutanásia (%)'] = round(chance, 1)
     out['Doenças Detectadas'] = [d for d in palavras_chave_eutanasia if d in tn] or ["Nenhuma grave"]
 
     return out
@@ -124,7 +140,7 @@ except FileNotFoundError as e:
     st.stop()
 
 palavras_chave_eutanasia = [
-    unicodedata.normalize('NFKD', d).encode('ASCII','ignore').decode('utf-8').lower().strip()
+    unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
     for d in df_do['Doença'].dropna().unique()
 ]
 
@@ -134,11 +150,11 @@ df['Mobilidade'] = le_mob.fit_transform(df['Mobilidade'].str.lower().str.strip()
 df['Apetite'] = le_app.fit_transform(df['Apetite'].str.lower().str.strip())
 df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
     lambda d: int(any(p in unicodedata.normalize('NFKD', d)
-                       .encode('ASCII','ignore').decode('utf-8')
+                       .encode('ASCII', 'ignore').decode('utf-8')
                        .lower() for p in palavras_chave_eutanasia))
 )
 
-features = ['Idade','Peso','Gravidade','Dor','Mobilidade','Apetite','Temperatura']
+features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
 features_eutanasia = features + ['tem_doenca_letal']
 
 model_eutanasia, model_alta, model_internar, model_dias = \
@@ -153,5 +169,6 @@ texto = st.text_area("Digite a anamnese:")
 if st.button("Analisar"):
     res = prever(texto)
     st.subheader("📋 Resultado")
-    for k,v in res.items():
-        st.write(f"**{k}**: {v if not isinstance(v,list) else ', '.join(v)}")
+    for k, v in res.items():
+        st.write(f"**{k}**: {v if not isinstance(v, list) else ', '.join(v)}")
+
