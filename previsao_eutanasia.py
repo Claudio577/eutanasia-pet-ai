@@ -64,22 +64,19 @@ def heuristicas_para_valores_reais(nova_linha, le_mob, le_app):
     return alta, internar, dias, eutanasia
 
 def treinar_modelos(df, le_mob, le_app):
+    smote = SMOTE(random_state=42)
+
     # Modelo eutanásia
     X_eutanasia = df[features_eutanasia].copy()
     y_eutanasia = df['Eutanasia'].copy()
-
-    mask = X_eutanasia.notnull().all(axis=1) & y_eutanasia.notnull()
-    X_eutanasia = X_eutanasia.loc[mask]
-    y_eutanasia = y_eutanasia.loc[mask]
-
-    X_eutanasia_np = X_eutanasia.values
-    y_eutanasia_np = y_eutanasia.values
+    dados_eut = pd.concat([X_eutanasia, y_eutanasia], axis=1).dropna()
+    X_eutanasia = dados_eut[features_eutanasia]
+    y_eutanasia = dados_eut['Eutanasia']
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X_eutanasia_np, y_eutanasia_np, test_size=0.2, random_state=42
+        X_eutanasia.values, y_eutanasia.values, test_size=0.2, random_state=42
     )
 
-    smote = SMOTE(random_state=42)
     X_train_res, y_train_res = smote.fit_resample(X_train, y_train)
 
     modelo_eutanasia = RandomForestClassifier(class_weight='balanced', random_state=42)
@@ -88,16 +85,12 @@ def treinar_modelos(df, le_mob, le_app):
     # Modelo alta
     X_alta = df[features].copy()
     y_alta = df['Alta'].copy()
-
-    mask_alta = X_alta.notnull().all(axis=1) & y_alta.notnull()
-    X_alta = X_alta.loc[mask_alta]
-    y_alta = y_alta.loc[mask_alta]
-
-    X_alta_np = X_alta.values
-    y_alta_np = y_alta.values
+    dados_alta = pd.concat([X_alta, y_alta], axis=1).dropna()
+    X_alta = dados_alta[features]
+    y_alta = dados_alta['Alta']
 
     X_alta_train, _, y_alta_train, _ = train_test_split(
-        X_alta_np, y_alta_np, test_size=0.2, random_state=42
+        X_alta.values, y_alta.values, test_size=0.2, random_state=42
     )
 
     X_alta_res, y_alta_res = smote.fit_resample(X_alta_train, y_alta_train)
@@ -108,10 +101,9 @@ def treinar_modelos(df, le_mob, le_app):
     # Modelo internar
     X_internar = df[features].copy()
     y_internar = df['Internar'].copy()
-
-    mask_internar = X_internar.notnull().all(axis=1) & y_internar.notnull()
-    X_internar = X_internar.loc[mask_internar]
-    y_internar = y_internar.loc[mask_internar]
+    dados_int = pd.concat([X_internar, y_internar], axis=1).dropna()
+    X_internar = dados_int[features]
+    y_internar = dados_int['Internar']
 
     modelo_internar = RandomForestClassifier(random_state=42)
     modelo_internar.fit(X_internar.values, y_internar.values)
@@ -120,10 +112,9 @@ def treinar_modelos(df, le_mob, le_app):
     df_dias = df[df['Internar'] == 1].copy()
     X_dias = df_dias[features].copy()
     y_dias = df_dias['Dias Internado'].copy()
-
-    mask_dias = X_dias.notnull().all(axis=1) & y_dias.notnull()
-    X_dias = X_dias.loc[mask_dias]
-    y_dias = y_dias.loc[mask_dias]
+    dados_dias = pd.concat([X_dias, y_dias], axis=1).dropna()
+    X_dias = dados_dias[features]
+    y_dias = dados_dias['Dias Internado']
 
     modelo_dias = RandomForestClassifier(random_state=42)
     modelo_dias.fit(X_dias.values, y_dias.values)
