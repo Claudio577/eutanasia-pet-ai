@@ -1,3 +1,4 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
 import unicodedata
@@ -6,33 +7,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from imblearn.over_sampling import SMOTE
-
-# =======================
-# LEITURA DOS ARQUIVOS
-# =======================
-df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
-df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
-
-# =======================
-# PREPARAÇÃO DOS DADOS
-# =======================
-palavras_chave_eutanasia = [
-    unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
-    for d in df_doencas['Doença'].dropna().unique()
-]
-
-le_mob = LabelEncoder()
-le_app = LabelEncoder()
-df['Mobilidade'] = le_mob.fit_transform(df['Mobilidade'].str.lower().str.strip())
-df['Apetite'] = le_app.fit_transform(df['Apetite'].str.lower().str.strip())
-
-df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
-    lambda d: int(any(p in unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower()
-                      for p in palavras_chave_eutanasia))
-)
-
-features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
-features_eutanasia = features + ['tem_doenca_letal']
 
 # =======================
 # FUNÇÕES AUXILIARES
@@ -89,9 +63,6 @@ def heuristicas_para_valores_reais(nova_linha, le_mob, le_app):
 
     return alta, internar, dias, eutanasia
 
-# =======================
-# TREINAMENTO DOS MODELOS
-# =======================
 def treinar_modelos(df, le_mob, le_app):
     X_eutanasia = df[features_eutanasia]
     y_eutanasia = df['Eutanasia']
@@ -112,12 +83,7 @@ def treinar_modelos(df, le_mob, le_app):
 
     return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias
 
-modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = treinar_modelos(df, le_mob, le_app)
-
-# =======================
-# FUNÇÃO DE PREVISÃO
-# =======================
-def prever_a_partir_da_anamnese(texto):
+def prever(texto):
     texto_norm = normalizar_texto(texto)
 
     idade = extrair_variavel(r"(\d+(?:\.\d+)?)\s*anos?", texto_norm, float, 5.0)
@@ -172,87 +138,44 @@ def prever_a_partir_da_anamnese(texto):
         "Internar": "Sim" if internar == 1 else "Não",
         "Dias Internado": dias,
         "Chance de Eutanásia (%)": eutanasia_chance,
-        "Doenças Detectadas": doencas_detectadas if doencas_detectadas else "Nenhuma doença grave encontrada"
+        "Doenças Detectadas": doencas_detectadas if doencas_detectadas else ["Nenhuma grave"]
     }
 
 # =======================
-# LOOP INTERATIVO
+# CARREGAMENTO DE DADOS
 # =======================
-print("Digite a anamnese do paciente ou 'sair' para encerrar:")
+df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
+df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
 
-while True:
-    anamnese = ""
-    print("\nDigite o texto da anamnese (finalize com linha vazia):")
-    while True:
-        linha = input()
-        if linha.strip() == "":
-            break
-        anamnese += linha + " "
+palavras_chave_eutanasia = [
+    unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
+    for d in df_doencas['Doença'].dropna().unique()
+]
 
-    if anamnese.strip().lower() == "sair":
-        print("Encerrando o programa.")
-        break
+le_mob = LabelEncoder()
+le_app = LabelEncoder()
+df['Mobilidade'] = le_mob.fit_transform(df['Mobilidade'].str.lower().str.strip())
+df['Apetite'] = le_app.fit_transform(df['Apetite'].str.lower().str.strip())
 
-    texto_norm = normalizar_texto(anamnese)
+df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
+    lambda d: int(any(p in unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower()
+                      for p in palavras_chave_eutanasia))
+)
 
-    idade = extrair_variavel(r"(\d+(?:\.\d+)?)\s*anos?", texto_norm, float, 5.0)
-    peso = extrair_variavel(r"(\d+(?:\.\d+)?)\s*kg", texto_norm, float, 10.0)
-    temperatura = extrair_variavel(r"(\d{2}(?:\.\d+)?)\s*(?:graus|c|celsius|ºc)", texto_norm, float, 38.5)
-    gravidade = 10 if "vermelho" in texto_norm else 5
+features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
+features_eutanasia = features + ['tem_doenca_letal']
 
-    if "dor intensa" in texto_norm:
-        dor = 10
-    elif "dor moderada" in texto_norm:
-        dor = 5
-    elif "sem dor" in texto_norm:
-        dor = 0
-    else:
-        dor = 4
+modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = treinar_modelos(df, le_mob, le_app)
 
-    if "nenhum apetite" in texto_norm:
-        apetite = le_app.transform(["nenhum"])[0]
-    elif "baixo apetite" in texto_norm or "apetite baixo" in texto_norm:
-        apetite = le_app.transform(["baixo"])[0]
-    else:
-        apetite = le_app.transform(["normal"])[0]
+# =======================
+# INTERFACE STREAMLIT
+# =======================
+st.title("💉 Avaliação Clínica Canina")
 
-    if "sem andar" in texto_norm or "nao conseguindo ficar de estacao" in texto_norm:
-        mobilidade = le_mob.transform(["sem andar"])[0]
-    elif "limitada" in texto_norm or "fraqueza" in texto_norm:
-        mobilidade = le_mob.transform(["limitada"])[0]
-    else:
-        mobilidade = le_mob.transform(["normal"])[0]
+anamnese = st.text_area("Digite a anamnese do paciente:")
 
-    doencas_detectadas = [d for d in palavras_chave_eutanasia if d in texto_norm]
-    tem_doenca_letal = int(len(doencas_detectadas) > 0)
-
-    nova_linha = {
-        "Idade": idade,
-        "Peso": peso,
-        "Gravidade": gravidade,
-        "Dor": dor,
-        "Mobilidade": mobilidade,
-        "Apetite": apetite,
-        "Temperatura": temperatura,
-        "tem_doenca_letal": tem_doenca_letal,
-        "Doença": ", ".join(doencas_detectadas) if doencas_detectadas else ""
-    }
-
-    alta_real, internar_real, dias_real, eutanasia_real = heuristicas_para_valores_reais(nova_linha, le_mob, le_app)
-    print(f"\nValores estimados (via heurísticas): Alta={alta_real}, Internar={internar_real}, Dias={dias_real}, Eutanásia={eutanasia_real}")
-
-    nova_linha['Alta'] = alta_real
-    nova_linha['Internar'] = internar_real
-    nova_linha['Dias Internado'] = dias_real
-    nova_linha['Eutanasia'] = eutanasia_real
-
-    # ✅ Corrigido: Substituição do append
-    df = pd.concat([df, pd.DataFrame([nova_linha])], ignore_index=True)
-
-    # Opcional: você pode comentar isso se quiser acelerar
-    modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = treinar_modelos(df, le_mob, le_app)
-
-    resultado = prever_a_partir_da_anamnese(anamnese)
-    print("\n📋 Resultado da Previsão:")
-    for k, v in resultado.items():
-        print(f"{k}: {v}")
+if st.button("Analisar"):
+    resultado = prever(anamnese)
+    st.subheader("📋 Resultado da Avaliação:")
+    for chave, valor in resultado.items():
+        st.write(f"**{chave}**: {valor}")
