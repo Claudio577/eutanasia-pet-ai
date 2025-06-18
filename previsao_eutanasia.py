@@ -11,6 +11,7 @@ from imblearn.over_sampling import SMOTE
 # =======================
 # FUNÇÕES AUXILIARES
 # =======================
+
 def normalizar_texto(texto):
     texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
     texto = re.sub(r'[^\w\s]', ' ', texto)
@@ -64,6 +65,9 @@ def heuristicas_para_valores_reais(nova_linha, le_mob, le_app):
     return alta, internar, dias, eutanasia
 
 def treinar_modelos(df, le_mob, le_app):
+    features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
+    features_eutanasia = features + ['tem_doenca_letal']
+
     X_eutanasia = df[features_eutanasia]
     y_eutanasia = df['Eutanasia']
     X_train, X_test, y_train, y_test = train_test_split(X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
@@ -144,8 +148,13 @@ def prever(texto):
 # =======================
 # CARREGAMENTO DE DADOS
 # =======================
-df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
-df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
+
+try:
+    df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
+    df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
+except FileNotFoundError as e:
+    st.error(f"Arquivo não encontrado: {e.filename}. Por favor, coloque os arquivos CSV na mesma pasta do app.")
+    st.stop()
 
 palavras_chave_eutanasia = [
     unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
@@ -170,12 +179,20 @@ modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = treinar_modelos(df
 # =======================
 # INTERFACE STREAMLIT
 # =======================
+
 st.title("💉 Avaliação Clínica Canina")
 
 anamnese = st.text_area("Digite a anamnese do paciente:")
 
 if st.button("Analisar"):
-    resultado = prever(anamnese)
-    st.subheader("📋 Resultado da Avaliação:")
-    for chave, valor in resultado.items():
-        st.write(f"**{chave}**: {valor}")
+    if not anamnese.strip():
+        st.warning("Por favor, digite a anamnese para análise.")
+    else:
+        resultado = prever(anamnese)
+        st.subheader("📋 Resultado da Avaliação:")
+        for chave, valor in resultado.items():
+            if isinstance(valor, list):
+                st.write(f"**{chave}**: {', '.join(valor)}")
+            else:
+                st.write(f"**{chave}**: {valor}")
+
