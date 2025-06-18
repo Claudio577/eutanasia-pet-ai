@@ -6,7 +6,6 @@ import re
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.utils import check_X_y
 from imblearn.over_sampling import SMOTE
 
 # ----------------------
@@ -44,76 +43,65 @@ def heuristicas_para_valores_reais(linha, le_mob, le_app):
     return alta, internar, dias, eutanasia
 
 # ----------------------
-# TREINAMENTO DE MODELOS - CORRIGIDO
+# TREINAMENTO DE MODELOS
 # ----------------------
 def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
     smote = SMOTE(random_state=42)
 
-    # Preparar dados para Eutanásia
-    X_e = df[features_eutanasia].copy()
-    y_e = df['Eutanasia'].copy()
+    # Preparação dos dados para Eutanásia
+    X_e = df[features_eutanasia].fillna(df[features_eutanasia].mean()).astype(float).to_numpy()
+    y_e = df['Eutanasia'].fillna(df['Eutanasia'].mode()[0]).astype(int).to_numpy()
 
-    # Preencher NaNs e converter tipos
-    X_e = X_e.fillna(X_e.mean()).astype(float)
-    y_e = y_e.fillna(y_e.mode()[0]).astype(int)
+    st.write(f"Distribuição Eutanásia: {np.bincount(y_e)}")
+    st.write(f"NaNs em X_e: {np.isnan(X_e).sum()}, NaNs em y_e: {np.isnan(y_e).sum()}")
 
-    # Verificar se tem classes suficientes e quantidade para SMOTE
-    unique_classes_e, counts_e = np.unique(y_e, return_counts=True)
-    if len(unique_classes_e) < 2 or np.min(counts_e) < 2:
-        st.warning("Dados insuficientes para aplicar SMOTE na predição de eutanásia. Treinando sem balanceamento.")
+    if len(np.unique(y_e)) < 2 or min(np.bincount(y_e)) < 2:
+        st.warning("Dados insuficientes para aplicar SMOTE na predição de eutanásia.")
         model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
-        model_e.fit(X_e.values, y_e.values)
+        model_e.fit(X_e, y_e)
     else:
-        # Garantir formato correto antes de dividir
-        X_e_checked, y_e_checked = check_X_y(X_e.values, y_e.values)
-        Xe_tr, _, ye_tr, _ = train_test_split(X_e_checked, y_e_checked,
-                                              test_size=0.2,
-                                              random_state=42,
-                                              stratify=y_e_checked)
+        Xe_tr, _, ye_tr, _ = train_test_split(X_e, y_e, test_size=0.2,
+                                              random_state=42, stratify=y_e)
         Xe_res, ye_res = smote.fit_resample(Xe_tr, ye_tr)
         model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_e.fit(Xe_res, ye_res)
 
-    # Preparar dados para Alta
-    X_a = df[features].copy()
-    y_a = df['Alta'].copy()
-    X_a = X_a.fillna(X_a.mean()).astype(float)
-    y_a = y_a.fillna(y_a.mode()[0]).astype(int)
+    # Preparação dos dados para Alta
+    X_a = df[features].fillna(df[features].mean()).astype(float).to_numpy()
+    y_a = df['Alta'].fillna(df['Alta'].mode()[0]).astype(int).to_numpy()
 
-    unique_classes_a, counts_a = np.unique(y_a, return_counts=True)
-    if len(unique_classes_a) < 2 or np.min(counts_a) < 2:
-        st.warning("Dados insuficientes para aplicar SMOTE na predição de alta. Treinando sem balanceamento.")
+    st.write(f"Distribuição Alta: {np.bincount(y_a)}")
+    st.write(f"NaNs em X_a: {np.isnan(X_a).sum()}, NaNs em y_a: {np.isnan(y_a).sum()}")
+
+    if len(np.unique(y_a)) < 2 or min(np.bincount(y_a)) < 2:
+        st.warning("Dados insuficientes para aplicar SMOTE na predição de alta.")
         model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
-        model_a.fit(X_a.values, y_a.values)
+        model_a.fit(X_a, y_a)
     else:
-        X_a_checked, y_a_checked = check_X_y(X_a.values, y_a.values)
-        Xa_tr, _, ya_tr, _ = train_test_split(X_a_checked, y_a_checked,
-                                              test_size=0.2,
-                                              random_state=42,
-                                              stratify=y_a_checked)
+        Xa_tr, _, ya_tr, _ = train_test_split(X_a, y_a, test_size=0.2,
+                                              random_state=42, stratify=y_a)
         Xa_res, ya_res = smote.fit_resample(Xa_tr, ya_tr)
         model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_a.fit(Xa_res, ya_res)
 
-    # Modelo para Internar (sem SMOTE)
+    # Internar - sem SMOTE
     model_i = RandomForestClassifier(random_state=42)
-    model_i.fit(X_a.values, df['Internar'].values)
+    model_i.fit(X_a, df['Internar'].values)
 
-    # Modelo para Dias Internado (apenas dados Internar==1)
+    # Dias Internado - só com dados internados
     df_internado = df[df['Internar'] == 1]
     if df_internado.shape[0] > 0:
         model_d = RandomForestClassifier(random_state=42)
-        X_d = df_internado[features].fillna(df_internado[features].mean()).astype(float)
-        y_d = df_internado['Dias Internado'].values
-        model_d.fit(X_d.values, y_d)
+        model_d.fit(df_internado[features].fillna(df_internado[features].mean()).astype(float).to_numpy(),
+                    df_internado['Dias Internado'].values)
     else:
         model_d = None
-        st.warning("Sem dados suficientes para treinar modelo de Dias Internado.")
+        st.warning("Sem dados para treinar modelo de Dias Internado.")
 
     return model_e, model_a, model_i, model_d
 
 # ----------------------
-# FUNÇÃO DE PREVISÃO (mantida igual)
+# FUNÇÃO DE PREVISÃO
 # ----------------------
 def prever(texto):
     tn = normalizar_texto(texto)
@@ -186,5 +174,6 @@ if st.button("Analisar"):
     st.subheader("📋 Resultado")
     for k,v in res.items():
         st.write(f"**{k}**: {v if not isinstance(v,list) else ', '.join(v)}")
+
 
 
