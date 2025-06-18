@@ -9,9 +9,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import check_X_y
 from imblearn.over_sampling import SMOTE
 
-# ----------------------
-# FUNÇÕES AUXILIARES
-# ----------------------
 def normalizar_texto(texto):
     return re.sub(r'\s+', ' ',
                   re.sub(r'[^\w\s]', ' ',
@@ -26,110 +23,59 @@ def extrair_variavel(padrao, texto, tipo=float, valor_padrao=None):
     m = re.search(padrao, texto)
     return tipo(m.group(1)) if (m and m.group(1)) else valor_padrao
 
-def heuristicas_para_valores_reais(linha, le_mob, le_app):
-    dor = linha['Dor']; temp = linha['Temperatura']
-    mobilidade = linha['Mobilidade']; apetite = linha['Apetite']
-    letal = linha['tem_doenca_letal']
+def treinar_modelo_com_smote(X, y, random_state=42):
+    smote = SMOTE(random_state=random_state)
+    # Verificar número de classes e quantidade mínima para aplicar SMOTE
+    classes, counts = np.unique(y, return_counts=True)
+    if len(classes) < 2:
+        # Só uma classe, treinar direto sem SMOTE
+        model = RandomForestClassifier(class_weight='balanced', random_state=random_state)
+        model.fit(X, y)
+        return model
+    elif np.min(counts) < 2:
+        # Classes com menos de 2 amostras, treinar direto sem SMOTE
+        model = RandomForestClassifier(class_weight='balanced', random_state=random_state)
+        model.fit(X, y)
+        return model
+    else:
+        X_res, y_res = smote.fit_resample(X, y)
+        model = RandomForestClassifier(class_weight='balanced', random_state=random_state)
+        model.fit(X_res, y_res)
+        return model
 
-    alta = int(not letal and dor <=4 and 37.5<=temp<=39
-               and mobilidade==le_mob.transform(['normal'])[0]
-               and apetite==le_app.transform(['normal'])[0])
-    internar = int(dor>=7 or temp>39.5 or temp<37
-                   or mobilidade in le_mob.transform(['sem andar','limitada'])
-                   or apetite in le_app.transform(['nenhum','baixo']))
-    dias = 0 if not internar else (7 if letal or dor>=8 or temp>40 else 3)
-    eutanasia = int(letal or dor>=9 or apetite==le_app.transform(['nenhum'])[0]
-                    or mobilidade==le_mob.transform(['sem andar'])[0]
-                    or temp>40)
-    return alta, internar, dias, eutanasia
-
-# ----------------------
-# TREINAMENTO DE MODELOS
-# ----------------------
 def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
-    smote = SMOTE(random_state=42)
-
-    # Eutanásia
+    # Preparar dados para Eutanásia
     X_e = df[features_eutanasia].fillna(df[features_eutanasia].mean()).astype(float)
     y_e = df['Eutanasia'].fillna(df['Eutanasia'].mode()[0]).astype(int)
     X_e, y_e = check_X_y(X_e, y_e, accept_sparse=False)
     Xe_tr, _, ye_tr, _ = train_test_split(X_e, y_e, test_size=0.2,
                                           random_state=42, stratify=y_e)
-    Xe_res, ye_res = smote.fit_resample(Xe_tr, ye_tr)
-    model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
-    model_e.fit(Xe_res, ye_res)
+    model_e = treinar_modelo_com_smote(Xe_tr, ye_tr)
 
-    # Alta
+    # Preparar dados para Alta
     X_a = df[features].fillna(df[features].mean()).astype(float)
     y_a = df['Alta'].fillna(df['Alta'].mode()[0]).astype(int)
     X_a, y_a = check_X_y(X_a, y_a, accept_sparse=False)
     Xa_tr, _, ya_tr, _ = train_test_split(X_a, y_a, test_size=0.2,
                                           random_state=42, stratify=y_a)
-    Xa_res, ya_res = smote.fit_resample(Xa_tr, ya_tr)
-    model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
-    model_a.fit(Xa_res, ya_res)
+    model_a = treinar_modelo_com_smote(Xa_tr, ya_tr)
 
-    # Internar e Dias — não usam SMOTE
+    # Internar
     model_i = RandomForestClassifier(random_state=42)
     model_i.fit(X_a, df['Internar'])
-    
-    # Para o modelo de dias, só usamos os casos em que internar == 1
+
+    # Dias internado (somente casos internados)
     df_internar = df[df['Internar'] == 1]
     if len(df_internar) > 0:
         model_d = RandomForestClassifier(random_state=42)
         model_d.fit(df_internar[features].fillna(df[features].mean()).astype(float),
                     df_internar['Dias Internado'])
     else:
-        model_d = None  # Caso não tenha dados suficientes
+        model_d = None
 
     return model_e, model_a, model_i, model_d
 
-# ----------------------
-# FUNÇÃO DE PREVISÃO
-# ----------------------
-def prever(texto):
-    tn = normalizar_texto(texto)
-    # st.write("Texto normalizado:", tn)  # DEBUG
-
-    idade = extrair_variavel(r"(\d+(?:\.\d+)?)\s*anos?", tn, float, 5.0)
-    peso = extrair_variavel(r"(\d+(?:\.\d+)?)\s*kg", tn, float, 10.0)
-    temp = extrair_variavel(r"(\d{2}(?:\.\d+)?)\s*(?:graus|c|celsius|ºc)", tn, float, 38.5)
-    grav = 10 if "vermelho" in tn else 5
-
-    dor = 10 if "dor intensa" in tn else 5 if "dor moderada" in tn else 0 if "sem dor" in tn else 4
-    ap = 'nenhum' if "nenhum apetite" in tn else 'baixo' if "baixo apetite" in tn or "apetite baixo" in tn else 'normal'
-    mob = 'sem andar' if "sem andar" in tn or "nao conseguindo ficar de estacao" in tn else \
-          'limitada' if "limitada" in tn or "fraqueza" in tn else 'normal'
-
-    ap_encoded = le_app.transform([ap])[0]
-    mob_encoded = le_mob.transform([mob])[0]
-
-    letal = int(any(p in tn for p in palavras_chave_eutanasia))
-    # st.write("letal:", letal)  # DEBUG
-
-    # Criar dois dataframes diferentes para os modelos que usam features diferentes
-    df_pre_eutanasia = pd.DataFrame([[idade,peso,grav,dor,mob_encoded,ap_encoded,temp,letal]],
-                          columns=features_eutanasia)
-    df_pre = df_pre_eutanasia[features]  # apenas features comuns
-
-    out = {}
-    out['Alta'] = "Sim" if model_alta.predict(df_pre)[0] else "Não"
-    out['Internar'] = "Sim" if model_internar.predict(df_pre)[0] else "Não"
-    
-    if out['Internar'] == "Sim" and model_dias is not None:
-        out['Dias Internado'] = int(model_dias.predict(df_pre)[0])
-    else:
-        out['Dias Internado'] = 0
-    
-    chance = model_eutanasia.predict_proba(df_pre_eutanasia)[0][1] * 100
-    out['Chance de Eutanásia (%)'] = round(chance,1)
-    out['Doenças Detectadas'] = [d for d in palavras_chave_eutanasia if d in tn] or ["Nenhuma grave"]
-
-    return out
-
-# ----------------------
-# CARREGAMENTO DE DADOS E TREINO
-# ----------------------
+# Carregamento dados e LabelEncoder (mantém igual ao seu código)
 try:
     df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
     df_do = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
@@ -141,9 +87,6 @@ palavras_chave_eutanasia = [
     unicodedata.normalize('NFKD', d).encode('ASCII','ignore').decode('utf-8').lower().strip()
     for d in df_do['Doença'].dropna().unique()
 ]
-
-# DEBUG: verificar lista de palavras-chave
-# st.write("Palavras chave de eutanásia:", palavras_chave_eutanasia)
 
 le_mob = LabelEncoder()
 le_app = LabelEncoder()
@@ -158,21 +101,10 @@ df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
 features = ['Idade','Peso','Gravidade','Dor','Mobilidade','Apetite','Temperatura']
 features_eutanasia = features + ['tem_doenca_letal']
 
-model_eutanasia, model_alta, model_internar, model_dias = \
-    treinar_modelos(df, features, features_eutanasia, le_mob, le_app)
+model_eutanasia, model_alta, model_internar, model_dias = treinar_modelos(
+    df, features, features_eutanasia, le_mob, le_app
+)
 
-# ----------------------
-# INTERFACE STREAMLIT
-# ----------------------
-st.title("💉 Avaliação Clínica Canina")
-texto = st.text_area("Digite a anamnese:")
+# Função prever e interface Streamlit seguem iguais (se quiser, mando de novo)
 
-if st.button("Analisar"):
-    res = prever(texto)
-    st.subheader("📋 Resultado")
-    for k,v in res.items():
-        if isinstance(v, list):
-            st.write(f"**{k}**: {', '.join(v)}")
-        else:
-            st.write(f"**{k}**: {v}")
 
