@@ -25,30 +25,13 @@ def extrair_variavel(padrao, texto, tipo=float, valor_padrao=None):
     m = re.search(padrao, texto)
     return tipo(m.group(1)) if (m and m.group(1)) else valor_padrao
 
-def heuristicas_para_valores_reais(linha, le_mob, le_app):
-    dor = linha['Dor']; temp = linha['Temperatura']
-    mobilidade = linha['Mobilidade']; apetite = linha['Apetite']
-    letal = linha['tem_doenca_letal']
-
-    alta = int(not letal and dor <=4 and 37.5<=temp<=39
-               and mobilidade==le_mob.transform(['normal'])[0]
-               and apetite==le_app.transform(['normal'])[0])
-    internar = int(dor>=7 or temp>39.5 or temp<37
-                   or mobilidade in le_mob.transform(['sem andar','limitada'])
-                   or apetite in le_app.transform(['nenhum','baixo']))
-    dias = 0 if not internar else (7 if letal or dor>=8 or temp>40 else 3)
-    eutanasia = int(letal or dor>=9 or apetite==le_app.transform(['nenhum'])[0]
-                    or mobilidade==le_mob.transform(['sem andar'])[0]
-                    or temp>40)
-    return alta, internar, dias, eutanasia
-
 # ----------------------
 # TREINAMENTO DE MODELOS
 # ----------------------
 def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
     smote = SMOTE(random_state=42)
 
-    # Preparação dos dados para Eutanásia
+    # ---------- EUTANÁSIA ----------
     X_e = df[features_eutanasia].fillna(df[features_eutanasia].mean()).astype(float).to_numpy()
     y_e = df['Eutanasia'].fillna(df['Eutanasia'].mode()[0]).astype(int).to_numpy()
 
@@ -60,40 +43,44 @@ def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
         model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_e.fit(X_e, y_e)
     else:
-        Xe_tr, _, ye_tr, _ = train_test_split(X_e, y_e, test_size=0.2,
-                                              random_state=42, stratify=y_e)
+        Xe_tr, _, ye_tr, _ = train_test_split(X_e, y_e, test_size=0.2, random_state=42, stratify=y_e)
+
+        # Garantir formatos corretos
+        Xe_tr = np.array(Xe_tr, dtype=float)
+        ye_tr = np.array(ye_tr, dtype=int).ravel()
+
         Xe_res, ye_res = smote.fit_resample(Xe_tr, ye_tr)
+
         model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_e.fit(Xe_res, ye_res)
 
-    # Preparação dos dados para Alta
+    # ---------- ALTA ----------
     X_a = df[features].fillna(df[features].mean()).astype(float).to_numpy()
     y_a = df['Alta'].fillna(df['Alta'].mode()[0]).astype(int).to_numpy()
-
-    st.write(f"Distribuição Alta: {np.bincount(y_a)}")
-    st.write(f"NaNs em X_a: {np.isnan(X_a).sum()}, NaNs em y_a: {np.isnan(y_a).sum()}")
 
     if len(np.unique(y_a)) < 2 or min(np.bincount(y_a)) < 2:
         st.warning("Dados insuficientes para aplicar SMOTE na predição de alta.")
         model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_a.fit(X_a, y_a)
     else:
-        Xa_tr, _, ya_tr, _ = train_test_split(X_a, y_a, test_size=0.2,
-                                              random_state=42, stratify=y_a)
+        Xa_tr, _, ya_tr, _ = train_test_split(X_a, y_a, test_size=0.2, random_state=42, stratify=y_a)
+        Xa_tr = np.array(Xa_tr, dtype=float)
+        ya_tr = np.array(ya_tr, dtype=int).ravel()
         Xa_res, ya_res = smote.fit_resample(Xa_tr, ya_tr)
+
         model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_a.fit(Xa_res, ya_res)
 
-    # Internar - sem SMOTE
+    # ---------- INTERNAR ----------
     model_i = RandomForestClassifier(random_state=42)
-    model_i.fit(X_a, df['Internar'].values)
+    model_i.fit(X_a, df['Internar'].astype(int).values)
 
-    # Dias Internado - só com dados internados
+    # ---------- DIAS INTERNADO ----------
     df_internado = df[df['Internar'] == 1]
     if df_internado.shape[0] > 0:
         model_d = RandomForestClassifier(random_state=42)
-        model_d.fit(df_internado[features].fillna(df_internado[features].mean()).astype(float).to_numpy(),
-                    df_internado['Dias Internado'].values)
+        model_d.fit(df_internado[features].fillna(df_internado[features].mean()).astype(float).values,
+                    df_internado['Dias Internado'].astype(int).values)
     else:
         model_d = None
         st.warning("Sem dados para treinar modelo de Dias Internado.")
@@ -126,7 +113,7 @@ def prever(texto):
     out['Alta'] = "Sim" if model_alta.predict(df_pre[features])[0] else "Não"
     out['Internar'] = "Sim" if model_internar.predict(df_pre[features])[0] else "Não"
     out['Dias Internado'] = int(model_dias.predict(df_pre[features])[0] if out['Internar']=="Sim" and model_dias else 0)
-    chance = model_eutanasia.predict_proba(df_pre)[0][1] * 100
+    chance = model_eutanasia.predict_proba(df_pre[features_eutanasia])[0][1] * 100
     out['Chance de Eutanásia (%)'] = round(chance,1)
     out['Doenças Detectadas'] = [d for d in palavras_chave_eutanasia if d in tn] or ["Nenhuma grave"]
 
@@ -174,6 +161,5 @@ if st.button("Analisar"):
     st.subheader("📋 Resultado")
     for k,v in res.items():
         st.write(f"**{k}**: {v if not isinstance(v,list) else ', '.join(v)}")
-
 
 
