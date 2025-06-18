@@ -6,7 +6,7 @@ import re
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import SMOTENC
 
 # ----------------------
 # FUNÇÕES AUXILIARES
@@ -29,34 +29,31 @@ def extrair_variavel(padrao, texto, tipo=float, valor_padrao=None):
 # TREINAMENTO DE MODELOS
 # ----------------------
 def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
-    smote = SMOTE(random_state=42)
+    cat_features = [features_eutanasia.index('Mobilidade'), features_eutanasia.index('Apetite')]
+    smote = SMOTENC(categorical_features=cat_features, random_state=42)
 
     # ---------- EUTANÁSIA ----------
-    X_e = df[features_eutanasia].fillna(df[features_eutanasia].mean()).astype(float).to_numpy()
-    y_e = df['Eutanasia'].fillna(df['Eutanasia'].mode()[0]).astype(int).to_numpy()
+    X_e = df[features_eutanasia].copy()
+    X_e[features_eutanasia] = X_e[features_eutanasia].fillna(X_e.mean(numeric_only=True))
+    X_e = X_e.astype(float)
+    y_e = df['Eutanasia'].fillna(df['Eutanasia'].mode()[0]).astype(int)
 
     st.write(f"Distribuição Eutanásia: {np.bincount(y_e)}")
-    st.write(f"NaNs em X_e: {np.isnan(X_e).sum()}, NaNs em y_e: {np.isnan(y_e).sum()}")
+    st.write(f"NaNs em X_e: {X_e.isnull().sum().sum()}, NaNs em y_e: {y_e.isnull().sum()}")
 
     if len(np.unique(y_e)) < 2 or min(np.bincount(y_e)) < 2:
-        st.warning("Dados insuficientes para aplicar SMOTE na predição de eutanásia.")
+        st.warning("Dados insuficientes para aplicar SMOTENC na predição de eutanásia.")
         model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_e.fit(X_e, y_e)
     else:
         Xe_tr, _, ye_tr, _ = train_test_split(X_e, y_e, test_size=0.2, random_state=42, stratify=y_e)
-
-        # Garantir formatos corretos
-        Xe_tr = np.array(Xe_tr, dtype=float)
-        ye_tr = np.array(ye_tr, dtype=int).ravel()
-
         Xe_res, ye_res = smote.fit_resample(Xe_tr, ye_tr)
-
         model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_e.fit(Xe_res, ye_res)
 
     # ---------- ALTA ----------
-    X_a = df[features].fillna(df[features].mean()).astype(float).to_numpy()
-    y_a = df['Alta'].fillna(df['Alta'].mode()[0]).astype(int).to_numpy()
+    X_a = df[features].fillna(df[features].mean(numeric_only=True)).astype(float)
+    y_a = df['Alta'].fillna(df['Alta'].mode()[0]).astype(int)
 
     if len(np.unique(y_a)) < 2 or min(np.bincount(y_a)) < 2:
         st.warning("Dados insuficientes para aplicar SMOTE na predição de alta.")
@@ -64,10 +61,7 @@ def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
         model_a.fit(X_a, y_a)
     else:
         Xa_tr, _, ya_tr, _ = train_test_split(X_a, y_a, test_size=0.2, random_state=42, stratify=y_a)
-        Xa_tr = np.array(Xa_tr, dtype=float)
-        ya_tr = np.array(ya_tr, dtype=int).ravel()
         Xa_res, ya_res = smote.fit_resample(Xa_tr, ya_tr)
-
         model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
         model_a.fit(Xa_res, ya_res)
 
