@@ -8,6 +8,12 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from imblearn.over_sampling import SMOTE
 import traceback
+import streamlit as st
+import sklearn
+import imblearn
+
+st.write("scikit-learn version:", sklearn.__version__)
+st.write("imbalanced-learn version:", imblearn.__version__)
 
 # =======================
 # FUNÇÕES AUXILIARES
