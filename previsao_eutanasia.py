@@ -64,22 +64,69 @@ def heuristicas_para_valores_reais(nova_linha, le_mob, le_app):
     return alta, internar, dias, eutanasia
 
 def treinar_modelos(df, le_mob, le_app):
-    X_eutanasia = df[features_eutanasia]
-    y_eutanasia = df['Eutanasia']
-    X_train, X_test, y_train, y_test = train_test_split(X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
-    X_train_res, y_train_res = SMOTE(random_state=42).fit_resample(X_train, y_train)
+    # Modelo eutanásia
+    X_eutanasia = df[features_eutanasia].copy()
+    y_eutanasia = df['Eutanasia'].copy()
+
+    mask = X_eutanasia.notnull().all(axis=1) & y_eutanasia.notnull()
+    X_eutanasia = X_eutanasia.loc[mask]
+    y_eutanasia = y_eutanasia.loc[mask]
+
+    X_eutanasia_np = X_eutanasia.values
+    y_eutanasia_np = y_eutanasia.values
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_eutanasia_np, y_eutanasia_np, test_size=0.2, random_state=42
+    )
+
+    smote = SMOTE(random_state=42)
+    X_train_res, y_train_res = smote.fit_resample(X_train, y_train)
+
     modelo_eutanasia = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_eutanasia.fit(X_train_res, y_train_res)
 
-    X_alta = df[features]
-    y_alta = df['Alta']
-    X_alta_train, _, y_alta_train, _ = train_test_split(X_alta, y_alta, test_size=0.2, random_state=42, stratify=y_alta)
-    X_alta_res, y_alta_res = SMOTE(random_state=42).fit_resample(X_alta_train, y_alta_train)
+    # Modelo alta
+    X_alta = df[features].copy()
+    y_alta = df['Alta'].copy()
+
+    mask_alta = X_alta.notnull().all(axis=1) & y_alta.notnull()
+    X_alta = X_alta.loc[mask_alta]
+    y_alta = y_alta.loc[mask_alta]
+
+    X_alta_np = X_alta.values
+    y_alta_np = y_alta.values
+
+    X_alta_train, _, y_alta_train, _ = train_test_split(
+        X_alta_np, y_alta_np, test_size=0.2, random_state=42
+    )
+
+    X_alta_res, y_alta_res = smote.fit_resample(X_alta_train, y_alta_train)
+
     modelo_alta = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_alta.fit(X_alta_res, y_alta_res)
 
-    modelo_internar = RandomForestClassifier(random_state=42).fit(df[features], df['Internar'])
-    modelo_dias = RandomForestClassifier(random_state=42).fit(df[df['Internar'] == 1][features], df[df['Internar'] == 1]['Dias Internado'])
+    # Modelo internar
+    X_internar = df[features].copy()
+    y_internar = df['Internar'].copy()
+
+    mask_internar = X_internar.notnull().all(axis=1) & y_internar.notnull()
+    X_internar = X_internar.loc[mask_internar]
+    y_internar = y_internar.loc[mask_internar]
+
+    modelo_internar = RandomForestClassifier(random_state=42)
+    modelo_internar.fit(X_internar.values, y_internar.values)
+
+    # Modelo dias internado (apenas internados)
+    df_dias = df[df['Internar'] == 1].copy()
+    X_dias = df_dias[features].copy()
+    y_dias = df_dias['Dias Internado'].copy()
+
+    mask_dias = X_dias.notnull().all(axis=1) & y_dias.notnull()
+    X_dias = X_dias.loc[mask_dias]
+    y_dias = y_dias.loc[mask_dias]
+
+    modelo_dias = RandomForestClassifier(random_state=42)
+    modelo_dias.fit(X_dias.values, y_dias.values)
 
     return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias
 
@@ -179,6 +226,5 @@ if st.button("Analisar"):
     st.subheader("📋 Resultado da Avaliação:")
     for chave, valor in resultado.items():
         st.write(f"**{chave}**: {valor}")
-
 
 
