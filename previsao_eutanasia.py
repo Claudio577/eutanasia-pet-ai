@@ -72,8 +72,15 @@ def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
     # Internar e Dias — não usam SMOTE
     model_i = RandomForestClassifier(random_state=42)
     model_i.fit(X_a, df['Internar'])
-    model_d = RandomForestClassifier(random_state=42)
-    model_d.fit(df[df['Internar']==1][features], df[df['Internar']==1]['Dias Internado'])
+    
+    # Para o modelo de dias, só usamos os casos em que internar == 1
+    df_internar = df[df['Internar'] == 1]
+    if len(df_internar) > 0:
+        model_d = RandomForestClassifier(random_state=42)
+        model_d.fit(df_internar[features].fillna(df[features].mean()).astype(float),
+                    df_internar['Dias Internado'])
+    else:
+        model_d = None  # Caso não tenha dados suficientes
 
     return model_e, model_a, model_i, model_d
 
@@ -82,6 +89,8 @@ def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
 # ----------------------
 def prever(texto):
     tn = normalizar_texto(texto)
+    # st.write("Texto normalizado:", tn)  # DEBUG
+
     idade = extrair_variavel(r"(\d+(?:\.\d+)?)\s*anos?", tn, float, 5.0)
     peso = extrair_variavel(r"(\d+(?:\.\d+)?)\s*kg", tn, float, 10.0)
     temp = extrair_variavel(r"(\d{2}(?:\.\d+)?)\s*(?:graus|c|celsius|ºc)", tn, float, 38.5)
@@ -92,18 +101,27 @@ def prever(texto):
     mob = 'sem andar' if "sem andar" in tn or "nao conseguindo ficar de estacao" in tn else \
           'limitada' if "limitada" in tn or "fraqueza" in tn else 'normal'
 
-    ap = le_app.transform([ap])[0]
-    mob = le_mob.transform([mob])[0]
-    letal = int(any(p in tn for p in palavras_chave_eutanasia))
+    ap_encoded = le_app.transform([ap])[0]
+    mob_encoded = le_mob.transform([mob])[0]
 
-    df_pre = pd.DataFrame([[idade,peso,grav,dor,mob,ap,temp,letal]],
+    letal = int(any(p in tn for p in palavras_chave_eutanasia))
+    # st.write("letal:", letal)  # DEBUG
+
+    # Criar dois dataframes diferentes para os modelos que usam features diferentes
+    df_pre_eutanasia = pd.DataFrame([[idade,peso,grav,dor,mob_encoded,ap_encoded,temp,letal]],
                           columns=features_eutanasia)
+    df_pre = df_pre_eutanasia[features]  # apenas features comuns
 
     out = {}
-    out['Alta'] = "Sim" if model_alta.predict(df_pre[features])[0] else "Não"
-    out['Internar'] = "Sim" if model_internar.predict(df_pre[features])[0] else "Não"
-    out['Dias Internado'] = int(model_dias.predict(df_pre[features])[0] if out['Internar']=="Sim" else 0)
-    chance = model_eutanasia.predict_proba(df_pre)[0][1] * 100
+    out['Alta'] = "Sim" if model_alta.predict(df_pre)[0] else "Não"
+    out['Internar'] = "Sim" if model_internar.predict(df_pre)[0] else "Não"
+    
+    if out['Internar'] == "Sim" and model_dias is not None:
+        out['Dias Internado'] = int(model_dias.predict(df_pre)[0])
+    else:
+        out['Dias Internado'] = 0
+    
+    chance = model_eutanasia.predict_proba(df_pre_eutanasia)[0][1] * 100
     out['Chance de Eutanásia (%)'] = round(chance,1)
     out['Doenças Detectadas'] = [d for d in palavras_chave_eutanasia if d in tn] or ["Nenhuma grave"]
 
@@ -123,6 +141,9 @@ palavras_chave_eutanasia = [
     unicodedata.normalize('NFKD', d).encode('ASCII','ignore').decode('utf-8').lower().strip()
     for d in df_do['Doença'].dropna().unique()
 ]
+
+# DEBUG: verificar lista de palavras-chave
+# st.write("Palavras chave de eutanásia:", palavras_chave_eutanasia)
 
 le_mob = LabelEncoder()
 le_app = LabelEncoder()
@@ -150,5 +171,8 @@ if st.button("Analisar"):
     res = prever(texto)
     st.subheader("📋 Resultado")
     for k,v in res.items():
-        st.write(f"**{k}**: {v if not isinstance(v,list) else ', '.join(v)}")
+        if isinstance(v, list):
+            st.write(f"**{k}**: {', '.join(v)}")
+        else:
+            st.write(f"**{k}**: {v}")
 
