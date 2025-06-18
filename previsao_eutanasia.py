@@ -52,28 +52,46 @@ def treinar_modelos(df, features, features_eutanasia, le_mob, le_app):
     # Eutanásia
     X_e = df[features_eutanasia].fillna(df[features_eutanasia].mean()).astype(float)
     y_e = df['Eutanasia'].fillna(df['Eutanasia'].mode()[0]).astype(int)
-    X_e, y_e = check_X_y(X_e, y_e, accept_sparse=False)
-    Xe_tr, _, ye_tr, _ = train_test_split(X_e, y_e, test_size=0.2,
-                                          random_state=42, stratify=y_e)
-    Xe_res, ye_res = smote.fit_resample(Xe_tr, ye_tr)
-    model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
-    model_e.fit(Xe_res, ye_res)
+
+    if len(np.unique(y_e)) < 2 or min(np.bincount(y_e)) < 2:
+        st.warning("Dados insuficientes para aplicar SMOTE na predição de eutanásia.")
+        model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
+        model_e.fit(X_e.values, y_e.values)
+    else:
+        X_e, y_e = check_X_y(X_e, y_e, accept_sparse=False)
+        Xe_tr, _, ye_tr, _ = train_test_split(X_e, y_e, test_size=0.2,
+                                              random_state=42, stratify=y_e)
+        Xe_res, ye_res = smote.fit_resample(Xe_tr, ye_tr)
+        model_e = RandomForestClassifier(class_weight='balanced', random_state=42)
+        model_e.fit(Xe_res, ye_res)
 
     # Alta
     X_a = df[features].fillna(df[features].mean()).astype(float)
     y_a = df['Alta'].fillna(df['Alta'].mode()[0]).astype(int)
-    X_a, y_a = check_X_y(X_a, y_a, accept_sparse=False)
-    Xa_tr, _, ya_tr, _ = train_test_split(X_a, y_a, test_size=0.2,
-                                          random_state=42, stratify=y_a)
-    Xa_res, ya_res = smote.fit_resample(Xa_tr, ya_tr)
-    model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
-    model_a.fit(Xa_res, ya_res)
+    if len(np.unique(y_a)) < 2 or min(np.bincount(y_a)) < 2:
+        st.warning("Dados insuficientes para aplicar SMOTE na predição de alta.")
+        model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
+        model_a.fit(X_a.values, y_a.values)
+    else:
+        X_a, y_a = check_X_y(X_a, y_a, accept_sparse=False)
+        Xa_tr, _, ya_tr, _ = train_test_split(X_a, y_a, test_size=0.2,
+                                              random_state=42, stratify=y_a)
+        Xa_res, ya_res = smote.fit_resample(Xa_tr, ya_tr)
+        model_a = RandomForestClassifier(class_weight='balanced', random_state=42)
+        model_a.fit(Xa_res, ya_res)
 
     # Internar e Dias — não usam SMOTE
     model_i = RandomForestClassifier(random_state=42)
-    model_i.fit(X_a, df['Internar'])
-    model_d = RandomForestClassifier(random_state=42)
-    model_d.fit(df[df['Internar']==1][features], df[df['Internar']==1]['Dias Internado'])
+    model_i.fit(X_a.values, df['Internar'].values)
+
+    df_internado = df[df['Internar'] == 1]
+    if df_internado.shape[0] > 0:
+        model_d = RandomForestClassifier(random_state=42)
+        model_d.fit(df_internado[features].fillna(df_internado[features].mean()).values,
+                    df_internado['Dias Internado'].values)
+    else:
+        model_d = None
+        st.warning("Sem dados para treinar modelo de Dias Internado.")
 
     return model_e, model_a, model_i, model_d
 
@@ -102,7 +120,7 @@ def prever(texto):
     out = {}
     out['Alta'] = "Sim" if model_alta.predict(df_pre[features])[0] else "Não"
     out['Internar'] = "Sim" if model_internar.predict(df_pre[features])[0] else "Não"
-    out['Dias Internado'] = int(model_dias.predict(df_pre[features])[0] if out['Internar']=="Sim" else 0)
+    out['Dias Internado'] = int(model_dias.predict(df_pre[features])[0] if out['Internar']=="Sim" and model_dias else 0)
     chance = model_eutanasia.predict_proba(df_pre)[0][1] * 100
     out['Chance de Eutanásia (%)'] = round(chance,1)
     out['Doenças Detectadas'] = [d for d in palavras_chave_eutanasia if d in tn] or ["Nenhuma grave"]
@@ -151,4 +169,5 @@ if st.button("Analisar"):
     st.subheader("📋 Resultado")
     for k,v in res.items():
         st.write(f"**{k}**: {v if not isinstance(v,list) else ', '.join(v)}")
+
 
