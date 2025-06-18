@@ -7,6 +7,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from imblearn.over_sampling import SMOTE
+import traceback
 
 # =======================
 # FUNÇÕES AUXILIARES
@@ -64,64 +65,38 @@ def heuristicas_para_valores_reais(nova_linha, le_mob, le_app):
     return alta, internar, dias, eutanasia
 
 def treinar_modelos(df, le_mob, le_app):
+    features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
+    features_eutanasia = features + ['tem_doenca_letal']
+
+    # Converta colunas para float/int para evitar erros no SMOTE
+    df[features] = df[features].apply(pd.to_numeric, errors='coerce')
+    df = df.dropna(subset=features + ['Eutanasia', 'Alta', 'Internar', 'Dias Internado'])
+
+    # Treino modelo Eutanasia
+    X_eutanasia = df[features_eutanasia]
+    y_eutanasia = df['Eutanasia']
+    X_train, X_test, y_train, y_test = train_test_split(X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
     smote = SMOTE(random_state=42)
-
-    # Modelo eutanásia
-    X_eutanasia = df[features_eutanasia].copy()
-    y_eutanasia = df['Eutanasia'].copy()
-    dados_eut = pd.concat([X_eutanasia, y_eutanasia], axis=1).dropna()
-    X_eutanasia = dados_eut[features_eutanasia]
-    y_eutanasia = dados_eut['Eutanasia']
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_eutanasia.values, y_eutanasia.values, test_size=0.2, random_state=42
-    )
-
     X_train_res, y_train_res = smote.fit_resample(X_train, y_train)
-
     modelo_eutanasia = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_eutanasia.fit(X_train_res, y_train_res)
 
-    # Modelo alta
-    X_alta = df[features].copy()
-    y_alta = df['Alta'].copy()
-    dados_alta = pd.concat([X_alta, y_alta], axis=1).dropna()
-    X_alta = dados_alta[features]
-    y_alta = dados_alta['Alta']
-
-    X_alta_train, _, y_alta_train, _ = train_test_split(
-        X_alta.values, y_alta.values, test_size=0.2, random_state=42
-    )
-
+    # Treino modelo Alta
+    X_alta = df[features]
+    y_alta = df['Alta']
+    X_alta_train, _, y_alta_train, _ = train_test_split(X_alta, y_alta, test_size=0.2, random_state=42, stratify=y_alta)
     X_alta_res, y_alta_res = smote.fit_resample(X_alta_train, y_alta_train)
-
     modelo_alta = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_alta.fit(X_alta_res, y_alta_res)
 
-    # Modelo internar
-    X_internar = df[features].copy()
-    y_internar = df['Internar'].copy()
-    dados_int = pd.concat([X_internar, y_internar], axis=1).dropna()
-    X_internar = dados_int[features]
-    y_internar = dados_int['Internar']
+    # Treino modelo Internar e Dias
+    modelo_internar = RandomForestClassifier(random_state=42).fit(df[features], df['Internar'])
+    modelo_dias = RandomForestClassifier(random_state=42).fit(df[df['Internar'] == 1][features], df[df['Internar'] == 1]['Dias Internado'])
 
-    modelo_internar = RandomForestClassifier(random_state=42)
-    modelo_internar.fit(X_internar.values, y_internar.values)
+    return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias, features, features_eutanasia
 
-    # Modelo dias internado (apenas internados)
-    df_dias = df[df['Internar'] == 1].copy()
-    X_dias = df_dias[features].copy()
-    y_dias = df_dias['Dias Internado'].copy()
-    dados_dias = pd.concat([X_dias, y_dias], axis=1).dropna()
-    X_dias = dados_dias[features]
-    y_dias = dados_dias['Dias Internado']
-
-    modelo_dias = RandomForestClassifier(random_state=42)
-    modelo_dias.fit(X_dias.values, y_dias.values)
-
-    return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias
-
-def prever(texto):
+def prever(texto, le_mob, le_app, modelos, features, features_eutanasia):
+    modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = modelos[:4]
     texto_norm = normalizar_texto(texto)
 
     idade = extrair_variavel(r"(\d+(?:\.\d+)?)\s*anos?", texto_norm, float, 5.0)
@@ -200,10 +175,18 @@ df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
                       for p in palavras_chave_eutanasia))
 )
 
-features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
-features_eutanasia = features + ['tem_doenca_letal']
-
-modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = treinar_modelos(df, le_mob, le_app)
+# =======================
+# TREINO DOS MODELOS COM TRATAMENTO DE ERROS
+# =======================
+try:
+    modelos = treinar_modelos(df, le_mob, le_app)
+except Exception as e:
+    st.error("Erro ao treinar modelos:")
+    st.text(str(e))
+    st.text(traceback.format_exc())
+    st.write("Exemplo das primeiras linhas do dataframe:")
+    st.write(df.head())
+    st.stop()
 
 # =======================
 # INTERFACE STREAMLIT
@@ -213,9 +196,15 @@ st.title("💉 Avaliação Clínica Canina")
 anamnese = st.text_area("Digite a anamnese do paciente:")
 
 if st.button("Analisar"):
-    resultado = prever(anamnese)
-    st.subheader("📋 Resultado da Avaliação:")
-    for chave, valor in resultado.items():
-        st.write(f"**{chave}**: {valor}")
-
+    try:
+        resultado = prever(anamnese, le_mob, le_app, modelos, modelos[4], modelos[5])
+        st.subheader("📋 Resultado da Avaliação:")
+        for chave, valor in resultado.items():
+            st.write(f"**{chave}**: {valor}")
+    except Exception as e:
+        st.error("Erro na predição:")
+        st.text(str(e))
+        st.text(traceback.format_exc())
+        st.write("Exemplo das primeiras linhas do dataframe:")
+        st.write(df.head())
 
