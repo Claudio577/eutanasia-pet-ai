@@ -78,11 +78,12 @@ def prever(texto):
         mobilidade = le_mob.transform(["normal"])[0]
 
     doencas_detectadas = [d for d in palavras_chave_eutanasia if d in texto_norm]
-    tem_doenca_letal = 1 if len(doencas_detectadas) > 0 else 0
 
     st.write("🔍 Texto normalizado:", texto_norm)
     st.write("✅ Doenças detectadas:", doencas_detectadas)
-    st.write("🚩 Flag tem_doenca_letal:", tem_doenca_letal)
+    st.write("🚩 Quantidade de doenças letais detectadas:", len(doencas_detectadas))
+
+    tem_doenca_letal = 1 if len(doencas_detectadas) > 0 else 0
 
     dados = [[idade, peso, gravidade, dor, mobilidade, apetite, temperatura, tem_doenca_letal]]
     dados_df = pd.DataFrame(dados, columns=features_eutanasia)
@@ -94,9 +95,9 @@ def prever(texto):
     eutanasia_chance_model = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
     st.write(f"🔢 Chance de eutanásia pelo modelo antes do ajuste: {eutanasia_chance_model}%")
 
-    if tem_doenca_letal == 1:
+    if len(doencas_detectadas) >= 1:
         eutanasia_chance = 95.0
-        st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal")
+        st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal detectada")
     else:
         if dor >= 7 or apetite == le_app.transform(["nenhum"])[0] or mobilidade == le_mob.transform(["sem andar"])[0] or temperatura > 40 or gravidade == 10:
             eutanasia_chance = max(eutanasia_chance_model, 50.0)
@@ -155,6 +156,7 @@ if st.button("Analisar"):
             if isinstance(valor, list):
                 valor = ", ".join(valor)
             st.write(f"**{chave}**: {valor}")
+
 
 
 
