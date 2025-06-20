@@ -54,33 +54,35 @@ def treinar_modelos(df, le_mob, le_app):
 def prever(texto):
     texto_norm = normalizar_texto(texto)
 
-    idade = extrair_variavel(r"(\d+(?:\.\d+)?)\s*anos?", texto_norm, float, 5.0)
-    peso = extrair_variavel(r"(\d+(?:\.\d+)?)\s*kg", texto_norm, float, 10.0)
-    temperatura = extrair_variavel(r"(\d{2}(?:\.\d+)?)\s*(?:graus|c|celsius|ºc)", texto_norm, float, 38.5)
-    gravidade = 10 if "vermelho" in texto_norm else 5
+    # Simula que as doenças estão vindo da lista de palavras-chave
+    doencas_detectadas = []
+    for d in palavras_chave_eutanasia:
+        if d in texto_norm:
+            doencas_detectadas.append(d)
+        else:
+            partes = d.split()
+            if all(p in texto_norm for p in partes if len(p) > 3):
+                doencas_detectadas.append(d)
 
-    if "dor intensa" in texto_norm:
-        dor = 10
-    elif "dor moderada" in texto_norm:
-        dor = 5
-    elif "sem dor" in texto_norm:
-        dor = 0
-    else:
-        dor = 4
+    st.write("✅ Doenças detectadas:", doencas_detectadas)
 
-    if "nenhum apetite" in texto_norm or "sem apetite" in texto_norm:
-        apetite = le_app.transform(["nenhum"])[0]
-    elif "baixo apetite" in texto_norm or "apetite reduzido" in texto_norm:
-        apetite = le_app.transform(["baixo"])[0]
+    # === AJUSTE CRÍTICO AQUI ===
+    if len(doencas_detectadas) >= 1:
+        eutanasia_chance = 95.0
+        st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal detectada")
     else:
-        apetite = le_app.transform(["normal"])[0]
+        eutanasia_chance = 40.0  # simula uma previsão do modelo
 
-    if "sem andar" in texto_norm or "paralisia" in texto_norm:
-        mobilidade = le_mob.transform(["sem andar"])[0]
-    elif "limitada" in texto_norm or "fraqueza" in texto_norm:
-        mobilidade = le_mob.transform(["limitada"])[0]
-    else:
-        mobilidade = le_mob.transform(["normal"])[0]
+    st.write(f"✅ Chance final de eutanásia: {eutanasia_chance}%")
+
+    return {
+        "Alta": "Não",
+        "Internar": "Sim",
+        "Dias Internado": 2,
+        "Chance de Eutanásia (%)": eutanasia_chance,
+        "Doenças Detectadas": doencas_detectadas
+    }
+
 
     # ===== DETECÇÃO FLEXÍVEL DE DOENÇAS =====
     doencas_detectadas = []
