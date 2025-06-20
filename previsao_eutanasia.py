@@ -26,47 +26,10 @@ def extrair_variavel(padrao, texto, tipo=float, valor_padrao=None):
             return valor_padrao
     return valor_padrao
 
-def heuristicas_para_valores_reais(nova_linha, le_mob, le_app):
-    dor = nova_linha['Dor']
-    temp = nova_linha['Temperatura']
-    mobilidade = nova_linha['Mobilidade']
-    apetite = nova_linha['Apetite']
-    tem_doenca_letal = nova_linha['tem_doenca_letal']
-
-    alta = 1 if (
-        tem_doenca_letal == 0 and
-        dor <= 4 and
-        37.5 <= temp <= 39.0 and
-        mobilidade == le_mob.transform(['normal'])[0] and
-        apetite == le_app.transform(['normal'])[0]
-    ) else 0
-
-    internar = 1 if (
-        dor >= 7 or
-        temp > 39.5 or temp < 37 or
-        mobilidade in [le_mob.transform(['sem andar'])[0], le_mob.transform(['limitada'])[0]] or
-        apetite in [le_app.transform(['nenhum'])[0], le_app.transform(['baixo'])[0]]
-    ) else 0
-
-    if internar == 0:
-        dias = 0
-    else:
-        dias = 7 if tem_doenca_letal == 1 or dor >= 8 or temp > 40 else 3
-
-    eutanasia = 1 if (
-        tem_doenca_letal == 1 or
-        dor >= 9 or
-        apetite == le_app.transform(['nenhum'])[0] or
-        mobilidade == le_mob.transform(['sem andar'])[0] or
-        temp > 40
-    ) else 0
-
-    return alta, internar, dias, eutanasia
-
 def treinar_modelos(df, le_mob, le_app):
     X_eutanasia = df[features_eutanasia]
     y_eutanasia = df['Eutanasia']
-    X_train, X_test, y_train, y_test = train_test_split(X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
+    X_train, _, y_train, _ = train_test_split(X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
     X_train_res, y_train_res = SMOTE(random_state=42).fit_resample(X_train, y_train)
     modelo_eutanasia = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_eutanasia.fit(X_train_res, y_train_res)
@@ -102,12 +65,12 @@ def prever(texto):
 
     if "nenhum apetite" in texto_norm:
         apetite = le_app.transform(["nenhum"])[0]
-    elif "baixo apetite" in texto_norm or "apetite baixo" in texto_norm:
+    elif "baixo apetite" in texto_norm:
         apetite = le_app.transform(["baixo"])[0]
     else:
         apetite = le_app.transform(["normal"])[0]
 
-    if "sem andar" in texto_norm or "nao conseguindo ficar de estacao" in texto_norm:
+    if "sem andar" in texto_norm:
         mobilidade = le_mob.transform(["sem andar"])[0]
     elif "limitada" in texto_norm or "fraqueza" in texto_norm:
         mobilidade = le_mob.transform(["limitada"])[0]
@@ -122,9 +85,6 @@ def prever(texto):
 
     tem_doenca_letal = int(len(doencas_detectadas) > 0)
 
-    # Debug para conferir
-    st.write(f"Palavras-chave detectadas: {doencas_detectadas}")
-
     dados = [[idade, peso, gravidade, dor, mobilidade, apetite, temperatura, tem_doenca_letal]]
     dados_df = pd.DataFrame(dados, columns=features_eutanasia)
 
@@ -132,13 +92,16 @@ def prever(texto):
     internar = int(modelo_internar.predict(dados_df[features])[0])
     dias = int(round(modelo_dias.predict(dados_df[features])[0])) if internar == 1 else 0
 
-    # Aqui a correção importante: calcula chance e força 95% para doença letal
+    # Chance de eutanásia — com forçamento por doença letal
     eutanasia_chance = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
-    if doencas_detectadas:
+    st.write("🧪 Doenças detectadas:", doencas_detectadas)
+    st.write("🔍 tem_doenca_letal:", tem_doenca_letal)
+
+    if tem_doenca_letal == 1:
+        st.write("⚠️ Doença letal detectada — chance forçada para 95%")
         eutanasia_chance = 95.0
-    else:
-        if dor >= 7 or apetite == le_app.transform(["nenhum"])[0] or mobilidade == le_mob.transform(["sem andar"])[0] or temperatura > 40 or gravidade == 10:
-            eutanasia_chance = max(eutanasia_chance, 50.0)
+    elif dor >= 7 or apetite == le_app.transform(["nenhum"])[0] or mobilidade == le_mob.transform(["sem andar"])[0] or temperatura > 40 or gravidade == 10:
+        eutanasia_chance = max(eutanasia_chance, 50.0)
 
     return {
         "Alta": "Sim" if alta == 1 else "Não",
@@ -155,7 +118,7 @@ df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
 df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
 
 palavras_chave_eutanasia = [
-    unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
+    normalizar_texto(d)
     for d in df_doencas['Doença'].dropna().unique()
 ]
 
@@ -165,8 +128,7 @@ df['Mobilidade'] = le_mob.fit_transform(df['Mobilidade'].str.lower().str.strip()
 df['Apetite'] = le_app.fit_transform(df['Apetite'].str.lower().str.strip())
 
 df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
-    lambda d: int(any(p in unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower()
-                      for p in palavras_chave_eutanasia))
+    lambda d: int(any(p in normalizar_texto(d) for p in palavras_chave_eutanasia))
 )
 
 features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
