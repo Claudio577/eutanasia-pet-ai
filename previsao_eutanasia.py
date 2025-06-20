@@ -141,10 +141,9 @@ def prever(texto):
         eutanasia_chance = max(eutanasia_chance, 90)
 
     # Ajuste para sintomas graves não detectados pelo modelo
-    termos_graves = ["cancer", "terminal", "insuficiencia renal", "falencia multiple", "convulsao", "coma"]
-    if doencas_detectadas and any(p in texto_norm for p in termos_graves):
-        if eutanasia_chance < 90:
-            eutanasia_chance = 95.0
+    # Atualização principal: se doença letal detectada, força chance >= 95%
+    if doencas_detectadas:
+        eutanasia_chance = max(eutanasia_chance, 95.0)
     else:
         if dor >= 7 or apetite == le_app.transform(["nenhum"])[0] or mobilidade == le_mob.transform(["sem andar"])[0] or temperatura > 40 or gravidade == 10:
             eutanasia_chance = max(eutanasia_chance, 50.0)
@@ -200,3 +199,4 @@ if st.button("Analisar"):
             if isinstance(valor, list):
                 valor = ", ".join(valor)
             st.write(f"**{chave}**: {valor}")
+
