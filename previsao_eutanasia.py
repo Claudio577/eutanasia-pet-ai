@@ -83,10 +83,14 @@ def prever(texto):
         mobilidade = le_mob.transform(["normal"])[0]
 
     # ===== DETECÇÃO FLEXÍVEL DE DOENÇAS =====
-    doencas_detectadas = [
-        d for d in palavras_chave_eutanasia 
-        if d in texto_norm or any(p in texto_norm for p in d.split())
-    ]
+    doencas_detectadas = []
+    for d in palavras_chave_eutanasia:
+        if d in texto_norm:
+            doencas_detectadas.append(d)
+        else:
+            partes = d.split()
+            if all(p in texto_norm for p in partes if len(p) > 3):
+                doencas_detectadas.append(d)
 
     st.write("🔍 Texto normalizado:", texto_norm)
     st.write("✅ Doenças detectadas:", doencas_detectadas)
@@ -136,8 +140,7 @@ df_doencas = pd.read_csv("/mnt/data/doencas_caninas_eutanasia_expandidas.csv")
 
 # Simplifica a lista para facilitar detecção parcial
 palavras_chave_eutanasia = [
-    normalizar_texto(d)
-    for d in df_doencas['Doença'].dropna().unique()
+    normalizar_texto(d) for d in df_doencas['Doença'].dropna().unique()
 ]
 
 le_mob = LabelEncoder()
@@ -167,6 +170,5 @@ if st.button("Analisar"):
             if isinstance(valor, list):
                 valor = ", ".join(valor)
             st.write(f"**{chave}**: {valor}")
-
 
 
