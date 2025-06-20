@@ -83,7 +83,10 @@ def prever(texto):
         mobilidade = le_mob.transform(["normal"])[0]
 
     # ===== DETECÇÃO FLEXÍVEL DE DOENÇAS =====
-    doencas_detectadas = [d for d in palavras_chave_eutanasia if d in texto_norm]
+    doencas_detectadas = [
+        d for d in palavras_chave_eutanasia 
+        if d in texto_norm or any(p in texto_norm for p in d.split())
+    ]
 
     st.write("🔍 Texto normalizado:", texto_norm)
     st.write("✅ Doenças detectadas:", doencas_detectadas)
@@ -106,7 +109,13 @@ def prever(texto):
         eutanasia_chance = 95.0
         st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal detectada")
     else:
-        if dor >= 7 or apetite == le_app.transform(["nenhum"])[0] or mobilidade == le_mob.transform(["sem andar"])[0] or temperatura > 40 or gravidade == 10:
+        if (
+            dor >= 7 or 
+            apetite == le_app.transform(["nenhum"])[0] or 
+            mobilidade == le_mob.transform(["sem andar"])[0] or 
+            temperatura > 40 or 
+            gravidade == 10
+        ):
             eutanasia_chance = max(eutanasia_chance_model, 50.0)
         else:
             eutanasia_chance = eutanasia_chance_model
@@ -122,8 +131,8 @@ def prever(texto):
     }
 
 # ========= CARREGAMENTO DE DADOS =========
-df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
-df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
+df = pd.read_csv("/mnt/data/Casos_Cl_nicos_Simulados.csv")
+df_doencas = pd.read_csv("/mnt/data/doencas_caninas_eutanasia_expandidas.csv")
 
 # Simplifica a lista para facilitar detecção parcial
 palavras_chave_eutanasia = [
