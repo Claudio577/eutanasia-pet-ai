@@ -10,7 +10,7 @@ from imblearn.over_sampling import SMOTE
 
 # ========= FUNÇÕES AUXILIARES =========
 def normalizar_texto(texto):
-    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
+    texto = unicodedata.normalize('NFKD', str(texto)).encode('ASCII', 'ignore').decode('utf-8').lower()
     texto = re.sub(r'[^\w\s]', ' ', texto)
     texto = re.sub(r'\s+', ' ', texto).strip()
     return texto
@@ -108,7 +108,7 @@ def prever(texto):
     eutanasia_chance_model = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
     st.write(f"🔢 Chance de eutanásia pelo modelo antes do ajuste: {eutanasia_chance_model}%")
 
-    # ===== AJUSTE FINAL =====
+    # ===== AJUSTE FINAL CORRIGIDO =====
     if len(doencas_detectadas) >= 1:
         eutanasia_chance = 95.0
         st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal detectada")
@@ -138,14 +138,14 @@ def prever(texto):
 df = pd.read_csv("/mnt/data/Casos_Cl_nicos_Simulados.csv")
 df_doencas = pd.read_csv("/mnt/data/doencas_caninas_eutanasia_expandidas.csv")
 
-# Simplifica a lista para facilitar detecção parcial
+# Lista de doenças normalizadas
 palavras_chave_eutanasia = [
     normalizar_texto(d) for d in df_doencas['Doença'].dropna().unique()
 ]
 
+# Preparação dos dados
 le_mob = LabelEncoder()
 le_app = LabelEncoder()
-
 df['Mobilidade'] = le_mob.fit_transform(df['Mobilidade'].str.lower().str.strip())
 df['Apetite'] = le_app.fit_transform(df['Apetite'].str.lower().str.strip())
 
@@ -170,5 +170,6 @@ if st.button("Analisar"):
             if isinstance(valor, list):
                 valor = ", ".join(valor)
             st.write(f"**{chave}**: {valor}")
+
 
 
