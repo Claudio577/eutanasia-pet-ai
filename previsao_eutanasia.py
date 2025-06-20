@@ -45,20 +45,22 @@ def heuristicas_para_valores_reais(nova_linha, le_mob, le_app):
         dor >= 7 or
         temp > 39.5 or temp < 37 or
         mobilidade in [le_mob.transform(['sem andar'])[0], le_mob.transform(['limitada'])[0]] or
-        apetite in [le_app.transform(['nenhum'])[0], le_app.transform(['baixo'])[0]]
+        apetite in [le_app.transform(['nenhum'])[0], le_app.transform(['baixo'])[0]] or
+        tem_doenca_letal == 1
     ) else 0
 
     if internar == 0:
         dias = 0
     else:
-        dias = 7 if tem_doenca_letal == 1 or dor >= 8 or temp > 40 else 3
+        dias = 7 if tem_doenca_letal == 1 or dor >= 8 or temp > 40 or mobilidade == le_mob.transform(['sem andar'])[0] else 3
 
     eutanasia = 1 if (
         tem_doenca_letal == 1 or
-        dor >= 9 or
+        dor >= 8 or
         apetite == le_app.transform(['nenhum'])[0] or
         mobilidade == le_mob.transform(['sem andar'])[0] or
-        temp > 40
+        temp > 39.5 or
+        (tem_doenca_letal == 1 and dor >= 5)
     ) else 0
 
     return alta, internar, dias, eutanasia
@@ -91,7 +93,7 @@ def prever(texto):
     temperatura = extrair_variavel(r"(\d{2}(?:\.\d+)?)\s*(?:graus|c|celsius|ºc)", texto_norm, float, 38.5)
     gravidade = 10 if "vermelho" in texto_norm else 5
 
-    if "dor intensa" in texto_norm:
+    if "dor intensa" in texto_norm or "dor extrema" in texto_norm:
         dor = 10
     elif "dor moderada" in texto_norm:
         dor = 5
@@ -100,16 +102,16 @@ def prever(texto):
     else:
         dor = 4
 
-    if "nenhum apetite" in texto_norm:
+    if "nenhum apetite" in texto_norm or "não come" in texto_norm or "recusa alimentar" in texto_norm:
         apetite = le_app.transform(["nenhum"])[0]
-    elif "baixo apetite" in texto_norm or "apetite baixo" in texto_norm:
+    elif "baixo apetite" in texto_norm or "apetite baixo" in texto_norm or "pouco apetite" in texto_norm:
         apetite = le_app.transform(["baixo"])[0]
     else:
         apetite = le_app.transform(["normal"])[0]
 
-    if "sem andar" in texto_norm or "nao conseguindo ficar de estacao" in texto_norm:
+    if "sem andar" in texto_norm or "não consegue ficar de pé" in texto_norm or "paralisia" in texto_norm:
         mobilidade = le_mob.transform(["sem andar"])[0]
-    elif "limitada" in texto_norm or "fraqueza" in texto_norm:
+    elif "limitada" in texto_norm or "fraqueza" in texto_norm or "dificuldade para andar" in texto_norm:
         mobilidade = le_mob.transform(["limitada"])[0]
     else:
         mobilidade = le_mob.transform(["normal"])[0]
@@ -125,13 +127,22 @@ def prever(texto):
     dias = int(modelo_dias.predict(dados_df[features])[0]) if internar == 1 else 0
     eutanasia_chance = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
 
-    termos_graves = ["cancer", "terminal", "insuficiencia renal", "falencia multiple", "convulsao", "coma"]
-    if doencas_detectadas and any(p in texto_norm for p in termos_graves):
-        if eutanasia_chance < 90:
-            eutanasia_chance = 95.0
-    else:
-        if dor >= 7 or apetite == le_app.transform(["nenhum"])[0] or mobilidade == le_mob.transform(["sem andar"])[0] or temperatura > 40 or gravidade == 10:
-            eutanasia_chance = max(eutanasia_chance, 50.0)
+    # Lógica aprimorada para cálculo da chance de eutanásia
+    condicoes_graves = (
+        doencas_detectadas or 
+        dor >= 9 or 
+        apetite == le_app.transform(["nenhum"])[0] or 
+        mobilidade == le_mob.transform(["sem andar"])[0] or 
+        temperatura > 39.5 or 
+        gravidade == 10
+    )
+    
+    if doencas_detectadas and condicoes_graves:
+        eutanasia_chance = 95.0
+    elif doencas_detectadas or condicoes_graves:
+        eutanasia_chance = max(eutanasia_chance, 75.0)
+    elif dor >= 9:
+        eutanasia_chance = max(eutanasia_chance, 60.0)
 
     return {
         "Alta": "Sim" if alta == 1 else "Não",
@@ -148,8 +159,7 @@ df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
 df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
 
 palavras_chave_eutanasia = [
-    unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
-    for d in df_doencas['Doença'].dropna().unique()
+    normalizar_texto(d) for d in df_doencas['Doença'].dropna().unique()
 ]
 
 le_mob = LabelEncoder()
@@ -158,8 +168,7 @@ df['Mobilidade'] = le_mob.fit_transform(df['Mobilidade'].str.lower().str.strip()
 df['Apetite'] = le_app.fit_transform(df['Apetite'].str.lower().str.strip())
 
 df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
-    lambda d: int(any(p in unicodedata.normalize('NFKD', d).encode('ASCII', 'ignore').decode('utf-8').lower()
-                      for p in palavras_chave_eutanasia))
+    lambda d: int(any(p in normalizar_texto(d) for p in palavras_chave_eutanasia))
 )
 
 features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
@@ -177,6 +186,56 @@ anamnese = st.text_area("Digite a anamnese do paciente:")
 if st.button("Analisar"):
     resultado = prever(anamnese)
     st.subheader("📋 Resultado da Avaliação:")
-    for chave, valor in resultado.items():
-        st.write(f"**{chave}**: {valor}")
+    st.write(f"**Alta**: {resultado['Alta']}")
+    st.write(f"**Internar**: {resultado['Internar']}")
+    st.write(f"**Dias Internado**: {resultado['Dias Internado']}")
+    st.write(f"**Chance de Eutanásia (%)**: {resultado['Chance de Eutanásia (%)']}")
+    st.write(f"**Doenças Detectadas**: {', '.join(resultado['Doenças Detectadas'])}")
 
+# Seção de exemplos
+st.header("📋 Exemplos de Anamneses para Teste")
+
+exemplo_alta = """
+Cachorro da raça Labrador, 4 anos, 32 kg, apresentando-se em bom estado geral. 
+O proprietário relata que o animal está ativo, com apetite normal e sem sinais de dor. 
+Exame físico revela temperatura de 38.2°C, mucosas rosadas e hidratadas. 
+O animal caminha normalmente e não apresenta alterações significativas ao exame.
+"""
+
+exemplo_eutanasia_sem_doenca = """
+Cão idoso, 12 anos, 18 kg, apresentando-se em mau estado geral. 
+Proprietário relata que o animal não consegue mais se levantar, não come há 3 dias 
+e apresenta dor intensa. Temperatura de 37.0°C. 
+O animal apresenta caquexia e desidratação severa. 
+Não foi diagnosticada nenhuma doença terminal específica.
+"""
+
+exemplo_eutanasia_com_doenca = """
+Cão da raça Pastor Alemão, 8 anos, 35 kg, diagnosticado com osteossarcoma metastático. 
+Apresenta dor extrema (10/10), não consegue se levantar, apetite nenhum nos últimos 5 dias. 
+Temperatura de 39.8°C. O tumor é inoperável e já apresenta metástases pulmonares. 
+O animal está em sofrimento constante mesmo com medicação analgésica máxima.
+"""
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.subheader("Caso para Alta")
+    st.text_area("Anamnese 1", exemplo_alta, height=200, key="ex1")
+    if st.button("Testar Caso 1"):
+        resultado = prever(exemplo_alta)
+        st.write(resultado)
+
+with col2:
+    st.subheader("Eutanásia (Sem Doença)")
+    st.text_area("Anamnese 2", exemplo_eutanasia_sem_doenca, height=200, key="ex2")
+    if st.button("Testar Caso 2"):
+        resultado = prever(exemplo_eutanasia_sem_doenca)
+        st.write(resultado)
+
+with col3:
+    st.subheader("Eutanásia (Com Doença)")
+    st.text_area("Anamnese 3", exemplo_eutanasia_com_doenca, height=200, key="ex3")
+    if st.button("Testar Caso 3"):
+        resultado = prever(exemplo_eutanasia_com_doenca)
+        st.write(resultado)
