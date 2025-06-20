@@ -26,59 +26,6 @@ def extrair_variavel(padrao, texto, tipo=float, valor_padrao=None):
             return valor_padrao
     return valor_padrao
 
-def heuristicas_para_valores_reais(nova_linha, le_mob, le_app, texto_norm):
-    dor = nova_linha['Dor']
-    temp = nova_linha['Temperatura']
-    mobilidade = nova_linha['Mobilidade']
-    apetite = nova_linha['Apetite']
-    tem_doenca_letal = nova_linha['tem_doenca_letal']
-    gravidade = nova_linha['Gravidade']
-
-    # Lógica para Alta
-    alta = 1 if (
-        tem_doenca_letal == 0 and
-        dor <= 4 and
-        37.5 <= temp <= 39.0 and
-        mobilidade == le_mob.transform(['normal'])[0] and
-        apetite == le_app.transform(['normal'])[0] and
-        gravidade < 8
-    ) else 0
-
-    # Lógica para Internação (mais sensível)
-    internar = 1 if (
-        dor >= 7 or
-        temp > 39.5 or temp < 37 or
-        mobilidade in [le_mob.transform(['sem andar'])[0], le_mob.transform(['limitada'])[0]] or
-        apetite in [le_app.transform(['nenhum'])[0], le_app.transform(['baixo'])[0]] or
-        tem_doenca_letal == 1 or
-        gravidade >= 8 or
-        any(d in texto_norm for d in ['pancreatite aguda', 'falencia hepatica', 'insuficiencia renal'])
-    ) else 0
-
-    # Lógica para Dias de Internação
-    if internar == 0:
-        dias = 0
-    else:
-        if (tem_doenca_letal == 1 or dor >= 8 or temp > 40 or 
-            mobilidade == le_mob.transform(['sem andar'])[0] or
-            'pancreatite aguda' in texto_norm):
-            dias = 7
-        else:
-            dias = 3
-
-    # Lógica para Eutanásia (mais sensível)
-    eutanasia = 1 if (
-        tem_doenca_letal == 1 or
-        dor >= 8 or
-        apetite == le_app.transform(['nenhum'])[0] or
-        mobilidade == le_mob.transform(['sem andar'])[0] or
-        temp > 40 or
-        (tem_doenca_letal == 1 and dor >= 5) or
-        gravidade == 10
-    ) else 0
-    
-    return alta, internar, dias, eutanasia
-
 def treinar_modelos(df, le_mob, le_app):
     X_eutanasia = df[features_eutanasia]
     y_eutanasia = df['Eutanasia']
@@ -104,10 +51,9 @@ def prever(texto):
 
     idade = extrair_variavel(r"(\d+(?:\.\d+)?)\s*anos?", texto_norm, float, 5.0)
     peso = extrair_variavel(r"(\d+(?:\.\d+)?)\s*kg", texto_norm, float, 10.0)
-    temperatura = extrair_variavel(r"(\d{2}(?:\.\d+)?)\s*(?:graus|c|celsius|ºc)", texto_norm, float, 38.5)
+    temperatura = extrair_variavel(r"(\d{2}(?:\.\d+)?)\s*(?:graus|c|celsius|\º c)", texto_norm, float, 38.5)
     gravidade = 10 if "vermelho" in texto_norm else (7 if "amarelo" in texto_norm else 5)
 
-    # Extração de Dor aprimorada
     if any(p in texto_norm for p in ["dor extrema", "dor 10", "dor dez", "dor intensa"]):
         dor = 10
     elif any(p in texto_norm for p in ["dor forte", "dor severa", "dor 8", "dor 9"]):
@@ -117,9 +63,8 @@ def prever(texto):
     elif any(p in texto_norm for p in ["sem dor", "ausencia de dor", "dor 0"]):
         dor = 0
     else:
-        dor = 3  # padrão para dor não especificada
+        dor = 3
 
-    # Extração de Apetite aprimorada
     if any(p in texto_norm for p in ["nenhum apetite", "não come", "recusa alimentar", "anorexia completa"]):
         apetite = le_app.transform(["nenhum"])[0]
     elif any(p in texto_norm for p in ["baixo apetite", "apetite baixo", "pouco apetite", "come pouco"]):
@@ -127,15 +72,13 @@ def prever(texto):
     else:
         apetite = le_app.transform(["normal"])[0]
 
-    # Extração de Mobilidade aprimorada
-    if any(p in texto_norm for p in ["sem andar", "não consegue andar", "decúbito permanente", "paralisia"]):
+    if any(p in texto_norm for p in ["sem andar", "não consegue andar", "decúbiso permanente", "paralisia"]):
         mobilidade = le_mob.transform(["sem andar"])[0]
     elif any(p in texto_norm for p in ["mobilidade limitada", "dificuldade para andar", "anda pouco", "fraqueza"]):
         mobilidade = le_mob.transform(["limitada"])[0]
     else:
         mobilidade = le_mob.transform(["normal"])[0]
 
-    # Doenças detectadas - lista expandida
     doencas_detectadas = [d for d in palavras_chave_eutanasia if d in texto_norm]
     tem_doenca_letal = int(len(doencas_detectadas) > 0)
 
@@ -147,18 +90,18 @@ def prever(texto):
     dias = int(modelo_dias.predict(dados_df[features])[0]) if internar == 1 else 0
     eutanasia_chance = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
 
-    # Lógica aprimorada para cálculo da chance de eutanásia
     condicoes_graves = (
-        doencas_detectadas or 
         dor >= 8 or 
         apetite == le_app.transform(["nenhum"])[0] or 
         mobilidade == le_mob.transform(["sem andar"])[0] or 
         temperatura > 39.5 or 
         gravidade == 10
     )
-    
-    if doencas_detectadas and condicoes_graves:
-        eutanasia_chance = 95.0
+
+    if len(doencas_detectadas) >= 2 and condicoes_graves:
+        eutanasia_chance = max(eutanasia_chance, 95.0)
+    elif doencas_detectadas and condicoes_graves:
+        eutanasia_chance = max(eutanasia_chance, 90.0)
     elif doencas_detectadas or condicoes_graves:
         eutanasia_chance = max(eutanasia_chance, 75.0)
     elif dor >= 8:
@@ -178,7 +121,6 @@ def prever(texto):
 df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
 df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
 
-# Lista expandida de doenças graves
 palavras_chave_eutanasia = [
     normalizar_texto(d) for d in df_doencas['Doença'].dropna().unique()
 ] + [
@@ -206,7 +148,7 @@ modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = treinar_modelos(df
 # =======================
 # INTERFACE STREAMLIT
 # =======================
-st.title("💉 Avaliação Clínica Canina")
+st.title("📉 Avaliação Clínica Canina")
 
 anamnese = st.text_area("Digite a anamnese do paciente:")
 
