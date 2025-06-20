@@ -8,7 +8,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from imblearn.over_sampling import SMOTE
 
-# ======= FUNÇÕES AUXILIARES =======
+# ========= FUNÇÕES AUXILIARES =========
 def normalizar_texto(texto):
     texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').lower()
     texto = re.sub(r'[^\w\s]', ' ', texto)
@@ -50,6 +50,7 @@ def treinar_modelos(df, le_mob, le_app):
 
     return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias, features, features_eutanasia
 
+# ========= FUNÇÃO DE PREVISÃO =========
 def prever(texto):
     texto_norm = normalizar_texto(texto)
 
@@ -67,25 +68,22 @@ def prever(texto):
     else:
         dor = 4
 
-    if "nenhum apetite" in texto_norm:
+    if "nenhum apetite" in texto_norm or "sem apetite" in texto_norm:
         apetite = le_app.transform(["nenhum"])[0]
-    elif "baixo apetite" in texto_norm:
+    elif "baixo apetite" in texto_norm or "apetite reduzido" in texto_norm:
         apetite = le_app.transform(["baixo"])[0]
     else:
         apetite = le_app.transform(["normal"])[0]
 
-    if "sem andar" in texto_norm:
+    if "sem andar" in texto_norm or "paralisia" in texto_norm:
         mobilidade = le_mob.transform(["sem andar"])[0]
     elif "limitada" in texto_norm or "fraqueza" in texto_norm:
         mobilidade = le_mob.transform(["limitada"])[0]
     else:
         mobilidade = le_mob.transform(["normal"])[0]
 
-    # Detectar doenças letais com regex palavra exata
-    doencas_detectadas = []
-    for d in palavras_chave_eutanasia:
-        if re.search(r'\b' + re.escape(d) + r'\b', texto_norm):
-            doencas_detectadas.append(d)
+    # ===== DETECÇÃO FLEXÍVEL DE DOENÇAS =====
+    doencas_detectadas = [d for d in palavras_chave_eutanasia if d in texto_norm]
 
     st.write("🔍 Texto normalizado:", texto_norm)
     st.write("✅ Doenças detectadas:", doencas_detectadas)
@@ -103,7 +101,7 @@ def prever(texto):
     eutanasia_chance_model = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
     st.write(f"🔢 Chance de eutanásia pelo modelo antes do ajuste: {eutanasia_chance_model}%")
 
-    # Forçar chance para 95% se doença letal detectada
+    # ===== AJUSTE FINAL =====
     if len(doencas_detectadas) >= 1:
         eutanasia_chance = 95.0
         st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal detectada")
@@ -123,10 +121,11 @@ def prever(texto):
         "Doenças Detectadas": doencas_detectadas if doencas_detectadas else ["Nenhuma grave"]
     }
 
-# ======= CARREGAMENTO DE DADOS =======
+# ========= CARREGAMENTO DE DADOS =========
 df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
 df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
 
+# Simplifica a lista para facilitar detecção parcial
 palavras_chave_eutanasia = [
     normalizar_texto(d)
     for d in df_doencas['Doença'].dropna().unique()
@@ -144,7 +143,7 @@ df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
 
 modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias, features, features_eutanasia = treinar_modelos(df, le_mob, le_app)
 
-# ======= INTERFACE STREAMLIT =======
+# ========= INTERFACE STREAMLIT =========
 st.title("💉 Avaliação Clínica Canina")
 
 anamnese = st.text_area("Digite a anamnese do paciente:")
