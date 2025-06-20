@@ -114,23 +114,26 @@ def prever(texto):
     else:
         mobilidade = le_mob.transform(["normal"])[0]
 
-    doencas_detectadas = [d for d in palavras_chave_eutanasia if d in texto_norm]
+    # Busca por regex para melhorar detecção de doenças letais
+    doencas_detectadas = []
+    for doenca in palavras_chave_eutanasia:
+        padrao = r'\b' + re.escape(doenca) + r'\b'
+        if re.search(padrao, texto_norm):
+            doencas_detectadas.append(doenca)
+
     tem_doenca_letal = int(len(doencas_detectadas) > 0)
+
+    # Debug para conferir palavras-chave encontradas
+    st.write(f"Palavras-chave detectadas: {doencas_detectadas}")
 
     dados = [[idade, peso, gravidade, dor, mobilidade, apetite, temperatura, tem_doenca_letal]]
     dados_df = pd.DataFrame(dados, columns=features_eutanasia)
 
-    # Debug: valores extraídos
-    st.write("### Dados extraídos da anamnese:")
-    st.write(dados_df)
-
-    # Previsões modelos
     alta = modelo_alta.predict(dados_df[features])[0]
     internar = int(modelo_internar.predict(dados_df[features])[0])
     dias = int(round(modelo_dias.predict(dados_df[features])[0])) if internar == 1 else 0
     eutanasia_chance = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
 
-    # Ajuste usando heurísticas
     alta_h, internar_h, dias_h, eutanasia_h = heuristicas_para_valores_reais(dados_df.iloc[0], le_mob, le_app)
 
     if internar_h > internar:
@@ -140,8 +143,6 @@ def prever(texto):
     if eutanasia_h > 0 and eutanasia_chance < 90:
         eutanasia_chance = max(eutanasia_chance, 90)
 
-    # Ajuste para sintomas graves não detectados pelo modelo
-    # Atualização principal: se doença letal detectada, força chance >= 95%
     if doencas_detectadas:
         eutanasia_chance = max(eutanasia_chance, 95.0)
     else:
