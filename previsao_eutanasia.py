@@ -27,6 +27,10 @@ def extrair_variavel(padrao, texto, tipo=float, valor_padrao=None):
     return valor_padrao
 
 def treinar_modelos(df, le_mob, le_app):
+    features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
+    features_eutanasia = features + ['tem_doenca_letal']
+
+    # Modelo eutanásia
     X_eutanasia = df[features_eutanasia]
     y_eutanasia = df['Eutanasia']
     X_train, _, y_train, _ = train_test_split(X_eutanasia, y_eutanasia, test_size=0.2, random_state=42, stratify=y_eutanasia)
@@ -34,6 +38,7 @@ def treinar_modelos(df, le_mob, le_app):
     modelo_eutanasia = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_eutanasia.fit(X_train_res, y_train_res)
 
+    # Modelo alta
     X_alta = df[features]
     y_alta = df['Alta']
     X_alta_train, _, y_alta_train, _ = train_test_split(X_alta, y_alta, test_size=0.2, random_state=42, stratify=y_alta)
@@ -41,10 +46,11 @@ def treinar_modelos(df, le_mob, le_app):
     modelo_alta = RandomForestClassifier(class_weight='balanced', random_state=42)
     modelo_alta.fit(X_alta_res, y_alta_res)
 
+    # Modelo internar e dias internado
     modelo_internar = RandomForestClassifier(random_state=42).fit(df[features], df['Internar'])
     modelo_dias = RandomForestRegressor(random_state=42).fit(df[df['Internar'] == 1][features], df[df['Internar'] == 1]['Dias Internado'])
 
-    return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias
+    return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias, features, features_eutanasia
 
 def prever(texto):
     texto_norm = normalizar_texto(texto)
@@ -77,7 +83,11 @@ def prever(texto):
     else:
         mobilidade = le_mob.transform(["normal"])[0]
 
-    doencas_detectadas = [d for d in palavras_chave_eutanasia if d in texto_norm]
+    # Detectar doenças letais usando regex para palavra exata
+    doencas_detectadas = []
+    for d in palavras_chave_eutanasia:
+        if re.search(r'\b' + re.escape(d) + r'\b', texto_norm):
+            doencas_detectadas.append(d)
 
     st.write("🔍 Texto normalizado:", texto_norm)
     st.write("✅ Doenças detectadas:", doencas_detectadas)
@@ -120,24 +130,27 @@ def prever(texto):
 df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
 df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
 
+# Normaliza lista de doenças letais para busca
 palavras_chave_eutanasia = [
     normalizar_texto(d)
     for d in df_doencas['Doença'].dropna().unique()
 ]
 
+# Preparar LabelEncoders
 le_mob = LabelEncoder()
 le_app = LabelEncoder()
+
+# Normalizar e codificar as colunas categóricas no dataframe principal
 df['Mobilidade'] = le_mob.fit_transform(df['Mobilidade'].str.lower().str.strip())
 df['Apetite'] = le_app.fit_transform(df['Apetite'].str.lower().str.strip())
 
+# Criar coluna binária indicando doença letal no dado original (para treino)
 df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
     lambda d: int(any(p in normalizar_texto(d) for p in palavras_chave_eutanasia))
 )
 
-features = ['Idade', 'Peso', 'Gravidade', 'Dor', 'Mobilidade', 'Apetite', 'Temperatura']
-features_eutanasia = features + ['tem_doenca_letal']
-
-modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias = treinar_modelos(df, le_mob, le_app)
+# Treinar os modelos
+modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias, features, features_eutanasia = treinar_modelos(df, le_mob, le_app)
 
 # =======================
 # INTERFACE STREAMLIT
@@ -156,7 +169,6 @@ if st.button("Analisar"):
             if isinstance(valor, list):
                 valor = ", ".join(valor)
             st.write(f"**{chave}**: {valor}")
-
 
 
 
