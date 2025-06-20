@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import unicodedata
 import re
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from imblearn.over_sampling import SMOTE
@@ -79,7 +79,7 @@ def treinar_modelos(df, le_mob, le_app):
     modelo_alta.fit(X_alta_res, y_alta_res)
 
     modelo_internar = RandomForestClassifier(random_state=42).fit(df[features], df['Internar'])
-    modelo_dias = RandomForestClassifier(random_state=42).fit(df[df['Internar'] == 1][features], df[df['Internar'] == 1]['Dias Internado'])
+    modelo_dias = RandomForestRegressor(random_state=42).fit(df[df['Internar'] == 1][features], df[df['Internar'] == 1]['Dias Internado'])
 
     return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias
 
@@ -120,11 +120,27 @@ def prever(texto):
     dados = [[idade, peso, gravidade, dor, mobilidade, apetite, temperatura, tem_doenca_letal]]
     dados_df = pd.DataFrame(dados, columns=features_eutanasia)
 
+    # Debug: valores extraídos
+    st.write("### Dados extraídos da anamnese:")
+    st.write(dados_df)
+
+    # Previsões modelos
     alta = modelo_alta.predict(dados_df[features])[0]
     internar = int(modelo_internar.predict(dados_df[features])[0])
-    dias = int(modelo_dias.predict(dados_df[features])[0]) if internar == 1 else 0
+    dias = int(round(modelo_dias.predict(dados_df[features])[0])) if internar == 1 else 0
     eutanasia_chance = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
 
+    # Ajuste usando heurísticas
+    alta_h, internar_h, dias_h, eutanasia_h = heuristicas_para_valores_reais(dados_df.iloc[0], le_mob, le_app)
+
+    if internar_h > internar:
+        internar = internar_h
+        dias = dias_h
+
+    if eutanasia_h > 0 and eutanasia_chance < 90:
+        eutanasia_chance = max(eutanasia_chance, 90)
+
+    # Ajuste para sintomas graves não detectados pelo modelo
     termos_graves = ["cancer", "terminal", "insuficiencia renal", "falencia multiple", "convulsao", "coma"]
     if doencas_detectadas and any(p in texto_norm for p in termos_graves):
         if eutanasia_chance < 90:
@@ -175,8 +191,12 @@ st.title("💉 Avaliação Clínica Canina")
 anamnese = st.text_area("Digite a anamnese do paciente:")
 
 if st.button("Analisar"):
-    resultado = prever(anamnese)
-    st.subheader("📋 Resultado da Avaliação:")
-    for chave, valor in resultado.items():
-        st.write(f"**{chave}**: {valor}")
-
+    if anamnese.strip() == "":
+        st.warning("Por favor, digite a anamnese para análise.")
+    else:
+        resultado = prever(anamnese)
+        st.subheader("📋 Resultado da Avaliação:")
+        for chave, valor in resultado.items():
+            if isinstance(valor, list):
+                valor = ", ".join(valor)
+            st.write(f"**{chave}**: {valor}")
