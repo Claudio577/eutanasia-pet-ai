@@ -51,10 +51,10 @@ def treinar_modelos(df, le_mob, le_app):
     return modelo_eutanasia, modelo_alta, modelo_internar, modelo_dias, features, features_eutanasia
 
 # ========= FUNÇÃO DE PREVISÃO =========
-def prever(texto):
+def prever(texto, idade, peso, gravidade, dor, mobilidade, apetite, temperatura):
     texto_norm = normalizar_texto(texto)
 
-    # Simula que as doenças estão vindo da lista de palavras-chave
+    # Detecção de doenças
     doencas_detectadas = []
     for d in palavras_chave_eutanasia:
         if d in texto_norm:
@@ -65,37 +65,7 @@ def prever(texto):
                 doencas_detectadas.append(d)
 
     st.write("✅ Doenças detectadas:", doencas_detectadas)
-
-    # === AJUSTE CRÍTICO AQUI ===
-    if len(doencas_detectadas) >= 1:
-        eutanasia_chance = 95.0
-        st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal detectada")
-    else:
-        eutanasia_chance = 40.0  # simula uma previsão do modelo
-
-    st.write(f"✅ Chance final de eutanásia: {eutanasia_chance}%")
-
-    return {
-        "Alta": "Não",
-        "Internar": "Sim",
-        "Dias Internado": 2,
-        "Chance de Eutanásia (%)": eutanasia_chance,
-        "Doenças Detectadas": doencas_detectadas
-    }
-
-
-    # ===== DETECÇÃO FLEXÍVEL DE DOENÇAS =====
-    doencas_detectadas = []
-    for d in palavras_chave_eutanasia:
-        if d in texto_norm:
-            doencas_detectadas.append(d)
-        else:
-            partes = d.split()
-            if all(p in texto_norm for p in partes if len(p) > 3):
-                doencas_detectadas.append(d)
-
     st.write("🔍 Texto normalizado:", texto_norm)
-    st.write("✅ Doenças detectadas:", doencas_detectadas)
     st.write("🚩 Quantidade de doenças letais detectadas:", len(doencas_detectadas))
 
     tem_doenca_letal = 1 if len(doencas_detectadas) > 0 else 0
@@ -110,7 +80,7 @@ def prever(texto):
     eutanasia_chance_model = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
     st.write(f"🔢 Chance de eutanásia pelo modelo antes do ajuste: {eutanasia_chance_model}%")
 
-    # ===== AJUSTE FINAL CORRIGIDO =====
+    # Ajuste final da chance de eutanásia
     if len(doencas_detectadas) >= 1:
         eutanasia_chance = 95.0
         st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal detectada")
@@ -162,15 +132,47 @@ st.title("💉 Avaliação Clínica Canina")
 
 anamnese = st.text_area("Digite a anamnese do paciente:")
 
+# Captura das variáveis numéricas e categóricas para o modelo
+idade = st.number_input("Idade (anos)", min_value=0, max_value=30, value=5)
+peso = st.number_input("Peso (kg)", min_value=0.1, max_value=100.0, value=10.0)
+gravidade = st.slider("Gravidade (0 a 10)", 0, 10, 5)
+dor = st.slider("Dor (0 a 10)", 0, 10, 3)
+
+# Mobilidade e Apetite como selectbox com valores usados no label encoder
+opcoes_mobilidade = sorted(df['Mobilidade'].astype(str).unique())
+opcoes_apetite = sorted(df['Apetite'].astype(str).unique())
+
+# Convertendo as opções para labels legíveis para o usuário
+# Mas para simplificar, vamos usar os valores codificados, pois o label encoder usa números
+mobilidade = st.selectbox("Mobilidade", options=opcoes_mobilidade, index=0)
+apetite = st.selectbox("Apetite", options=opcoes_apetite, index=0)
+
+# Como a label encoder transformou as strings para números, precisamos transformar de volta as strings dos options
+# Porém para usar no modelo, precisamos do valor codificado:
+mobilidade_cod = int(mobilidade)
+apetite_cod = int(apetite)
+
+temperatura = st.number_input("Temperatura (°C)", min_value=30.0, max_value=45.0, value=38.5)
+
 if st.button("Analisar"):
     if anamnese.strip() == "":
         st.warning("Por favor, digite a anamnese para análise.")
     else:
-        resultado = prever(anamnese)
+        resultado = prever(
+            anamnese,
+            idade=idade,
+            peso=peso,
+            gravidade=gravidade,
+            dor=dor,
+            mobilidade=mobilidade_cod,
+            apetite=apetite_cod,
+            temperatura=temperatura
+        )
         st.subheader("📋 Resultado da Avaliação:")
         for chave, valor in resultado.items():
             if isinstance(valor, list):
                 valor = ", ".join(valor)
             st.write(f"**{chave}**: {valor}")
+
 
 
