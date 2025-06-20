@@ -77,13 +77,14 @@ def prever(texto):
     else:
         mobilidade = le_mob.transform(["normal"])[0]
 
+    # Detectar doenças no texto normalizado
     doencas_detectadas = []
     for doenca in palavras_chave_eutanasia:
-        padrao = r'\b' + re.escape(doenca) + r'\b'
-        if re.search(padrao, texto_norm):
+        if doenca in texto_norm:
             doencas_detectadas.append(doenca)
 
-    tem_doenca_letal = int(len(doencas_detectadas) > 0)
+    # FORÇAR tem_doenca_letal com base em palavras detectadas
+    tem_doenca_letal = 1 if len(doencas_detectadas) > 0 else 0
 
     dados = [[idade, peso, gravidade, dor, mobilidade, apetite, temperatura, tem_doenca_letal]]
     dados_df = pd.DataFrame(dados, columns=features_eutanasia)
@@ -92,13 +93,14 @@ def prever(texto):
     internar = int(modelo_internar.predict(dados_df[features])[0])
     dias = int(round(modelo_dias.predict(dados_df[features])[0])) if internar == 1 else 0
 
-    # Chance de eutanásia — com forçamento por doença letal
+    # Calcula a chance original e aplica regra de forçamento
     eutanasia_chance = round(modelo_eutanasia.predict_proba(dados_df)[0][1] * 100, 1)
-    st.write("🧪 Doenças detectadas:", doencas_detectadas)
-    st.write("🔍 tem_doenca_letal:", tem_doenca_letal)
+
+    st.write("➡️ Doenças Detectadas:", doencas_detectadas)
+    st.write("➡️ tem_doenca_letal:", tem_doenca_letal)
 
     if tem_doenca_letal == 1:
-        st.write("⚠️ Doença letal detectada — chance forçada para 95%")
+        st.write("⚠️ Forçando chance de eutanásia para 95% por doença letal")
         eutanasia_chance = 95.0
     elif dor >= 7 or apetite == le_app.transform(["nenhum"])[0] or mobilidade == le_mob.transform(["sem andar"])[0] or temperatura > 40 or gravidade == 10:
         eutanasia_chance = max(eutanasia_chance, 50.0)
@@ -117,16 +119,19 @@ def prever(texto):
 df = pd.read_csv("Casos_Cl_nicos_Simulados.csv")
 df_doencas = pd.read_csv("doencas_caninas_eutanasia_expandidas.csv")
 
+# Normalizar palavras-chave
 palavras_chave_eutanasia = [
     normalizar_texto(d)
     for d in df_doencas['Doença'].dropna().unique()
 ]
 
+# Preparar codificadores
 le_mob = LabelEncoder()
 le_app = LabelEncoder()
 df['Mobilidade'] = le_mob.fit_transform(df['Mobilidade'].str.lower().str.strip())
 df['Apetite'] = le_app.fit_transform(df['Apetite'].str.lower().str.strip())
 
+# Adicionar flag de doença letal ao dataset original
 df['tem_doenca_letal'] = df['Doença'].fillna("").apply(
     lambda d: int(any(p in normalizar_texto(d) for p in palavras_chave_eutanasia))
 )
@@ -153,4 +158,5 @@ if st.button("Analisar"):
             if isinstance(valor, list):
                 valor = ", ".join(valor)
             st.write(f"**{chave}**: {valor}")
+
 
